@@ -1,0 +1,1496 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>مزرعة الخير - نظام إدارة الألبان</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --green: #3B6D11; --green-light: #EAF3DE; --green-mid: #639922;
+    --amber: #BA7517; --amber-light: #FAEEDA; --amber-mid: #EF9F27;
+    --teal: #0F6E56; --teal-light: #E1F5EE; --teal-mid: #1D9E75;
+    --red: #A32D2D; --red-light: #FCEBEB; --red-mid: #E24B4A;
+    --blue: #185FA5; --blue-light: #E6F1FB;
+    --bg: #f8f9fa; --surface: #ffffff; --border: #e5e7eb;
+    --text: #1a1a1a; --text2: #6b7280; --text3: #9ca3af;
+    --radius: 10px; --radius-sm: 6px;
+  }
+  body { font-family: 'Segoe UI', Tahoma, Arial, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* TOPBAR */
+  .topbar {
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: 12px 16px; display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 100;
+  }
+  .logo { display: flex; align-items: center; gap: 10px; }
+  .logo-icon { width: 36px; height: 36px; background: var(--green-light); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; font-size: 18px; }
+  .logo-name { font-size: 15px; font-weight: 600; color: var(--green); }
+  .logo-sub { font-size: 11px; color: var(--text2); }
+  .topbar-right { display: flex; align-items: center; gap: 8px; }
+  .date-chip { font-size: 12px; color: var(--text2); background: var(--bg); padding: 4px 10px; border-radius: 20px; border: 1px solid var(--border); }
+  .sync-indicator { width: 8px; height: 8px; border-radius: 50%; background: var(--green-mid); }
+  .sync-indicator.offline { background: var(--red-mid); }
+
+  /* NAV */
+  .nav { background: var(--surface); border-bottom: 1px solid var(--border); display: flex; overflow-x: auto; padding: 0 8px; gap: 2px; }
+  .nav-btn { padding: 10px 14px; font-size: 13px; border: none; background: none; color: var(--text2); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; transition: all 0.15s; }
+  .nav-btn:hover { color: var(--text); background: var(--bg); }
+  .nav-btn.active { color: var(--green); border-bottom-color: var(--green); font-weight: 500; }
+
+  /* LAYOUT */
+  .main { padding: 16px; max-width: 900px; margin: 0 auto; }
+  .page { display: none; }
+  .page.active { display: block; }
+
+  /* CARDS */
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; }
+  .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .card-title { font-size: 14px; font-weight: 600; }
+
+  /* KPI GRID */
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+  .kpi-label { font-size: 11px; color: var(--text2); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .kpi-value { font-size: 24px; font-weight: 600; line-height: 1; }
+  .kpi-unit { font-size: 11px; color: var(--text2); margin-top: 2px; }
+
+  /* BADGES */
+  .badge { font-size: 11px; padding: 3px 8px; border-radius: 20px; font-weight: 500; display: inline-block; }
+  .badge-green { background: var(--green-light); color: var(--green); }
+  .badge-amber { background: var(--amber-light); color: var(--amber); }
+  .badge-red { background: var(--red-light); color: var(--red); }
+  .badge-teal { background: var(--teal-light); color: var(--teal); }
+  .badge-blue { background: var(--blue-light); color: var(--blue); }
+
+  /* TABLES */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: right; padding: 8px 10px; color: var(--text2); font-weight: 500; border-bottom: 1px solid var(--border); font-size: 12px; white-space: nowrap; }
+  td { text-align: right; padding: 10px; border-bottom: 1px solid var(--border); color: var(--text); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--bg); }
+
+  /* FORMS */
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .form-group { display: flex; flex-direction: column; gap: 5px; }
+  .form-group label { font-size: 12px; color: var(--text2); font-weight: 500; }
+  .form-group input, .form-group select, .form-group textarea {
+    padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--surface); color: var(--text); font-size: 13px; font-family: inherit;
+    transition: border-color 0.15s;
+  }
+  .form-group input:focus, .form-group select:focus { outline: none; border-color: var(--green-mid); }
+  .form-group.full { grid-column: 1 / -1; }
+
+  /* BUTTONS */
+  .btn { padding: 8px 16px; border-radius: var(--radius-sm); font-size: 13px; cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--text); transition: all 0.15s; font-family: inherit; }
+  .btn:hover { background: var(--bg); }
+  .btn-primary { background: var(--green); color: #fff; border-color: var(--green); }
+  .btn-primary:hover { background: var(--green-mid); border-color: var(--green-mid); }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+  .btn-danger { background: var(--red-light); color: var(--red); border-color: var(--red-mid); }
+  .btn-row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; flex-wrap: wrap; }
+
+  /* ALERTS */
+  .alert { padding: 10px 14px; border-radius: var(--radius-sm); font-size: 13px; margin-bottom: 8px; display: flex; gap: 8px; align-items: flex-start; }
+  .alert-warning { background: var(--amber-light); color: var(--amber); }
+  .alert-danger { background: var(--red-light); color: var(--red); }
+  .alert-info { background: var(--blue-light); color: var(--blue); }
+  .alert-success { background: var(--green-light); color: var(--green); }
+
+  /* SECTION TITLE */
+  .section-title { font-size: 12px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.05em; margin: 16px 0 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+
+  /* TABS */
+  .tab-bar { display: flex; gap: 4px; margin-bottom: 14px; flex-wrap: wrap; }
+  .tab-btn { padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 500; border: 1px solid var(--border); background: var(--surface); cursor: pointer; color: var(--text2); transition: all 0.15s; }
+  .tab-btn.active { background: var(--green); color: #fff; border-color: var(--green); }
+
+  /* COW CARDS */
+  .cow-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .cow-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; transition: border-color 0.15s; }
+  .cow-card:hover { border-color: var(--green-mid); }
+  .cow-name { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+  .cow-breed { font-size: 11px; color: var(--text2); margin-bottom: 6px; }
+  .cow-milk { font-size: 20px; font-weight: 700; color: var(--green); }
+  .cow-milk-unit { font-size: 11px; color: var(--text2); }
+
+  /* TOAST */
+  #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1a1a1a; color: #fff; padding: 10px 20px; border-radius: 8px; font-size: 13px; display: none; z-index: 9999; white-space: nowrap; }
+
+  /* LOADING */
+  .loading { text-align: center; padding: 30px; color: var(--text2); font-size: 13px; }
+  .spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--green-mid); border-radius: 50%; animation: spin 0.6s linear infinite; margin-left: 8px; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* BAR CHART */
+  .bar-chart { display: flex; align-items: flex-end; gap: 8px; height: 120px; padding: 0 4px; }
+  .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; justify-content: flex-end; }
+  .bar { width: 100%; border-radius: 4px 4px 0 0; min-height: 4px; background: var(--green-mid); transition: height 0.4s; }
+  .bar-val { font-size: 10px; font-weight: 600; color: var(--text); }
+  .bar-lbl { font-size: 10px; color: var(--text2); }
+
+  /* PROGRESS */
+  .progress { height: 6px; background: var(--bg); border-radius: 3px; overflow: hidden; margin-top: 6px; }
+  .progress-fill { height: 100%; border-radius: 3px; background: var(--amber-mid); }
+
+  /* INVOICE TOTAL */
+  .inv-total { font-size: 28px; font-weight: 700; color: var(--green); }
+
+  /* EMPTY STATE */
+  .empty { text-align: center; padding: 30px; color: var(--text3); font-size: 13px; }
+
+  /* RESPONSIVE */
+  @media (max-width: 520px) {
+    .form-grid { grid-template-columns: 1fr; }
+    .main { padding: 10px; }
+    .kpi-value { font-size: 20px; }
+    .topbar { padding: 10px 12px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">🐄</div>
+    <div>
+      <div class="logo-name">مزرعة الخير</div>
+      <div class="logo-sub">إدارة الألبان والأجبان</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <div class="date-chip" id="today-date"></div>
+    <div class="sync-indicator" id="sync-dot" title="متصل بقاعدة البيانات"></div>
+  </div>
+</div>
+
+<div class="nav" id="main-nav">
+  <button class="nav-btn active" onclick="showPage('dashboard',this)">لوحة التحكم</button>
+  <button class="nav-btn" onclick="showPage('cows',this)">الأبقار</button>
+  <button class="nav-btn" onclick="showPage('milk',this)">إنتاج الحليب</button>
+  <button class="nav-btn" onclick="showPage('products',this)">المنتجات</button>
+  <button class="nav-btn" onclick="showPage('sales',this)">المبيعات</button>
+  <button class="nav-btn" onclick="showPage('accounts',this)">الحسابات</button>
+</div>
+
+<div class="main">
+
+  <!-- ===== لوحة التحكم ===== -->
+  <div class="page active" id="page-dashboard">
+    <div class="kpi-grid">
+      <div class="kpi">
+        <div class="kpi-label">حليب اليوم</div>
+        <div class="kpi-value" id="kpi-milk" style="color:var(--teal)">—</div>
+        <div class="kpi-unit">لتر</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">مبيعات الشهر</div>
+        <div class="kpi-value" id="kpi-sales" style="color:var(--green)">—</div>
+        <div class="kpi-unit">ل.س</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">صافي الربح</div>
+        <div class="kpi-value" id="kpi-profit">—</div>
+        <div class="kpi-unit">ل.س</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">الأبقار</div>
+        <div class="kpi-value" id="kpi-cows" style="color:var(--amber)">—</div>
+        <div class="kpi-unit">بقرة</div>
+      </div>
+    </div>
+
+    <div class="section-title">إنتاج الحليب — آخر 7 أيام</div>
+    <div class="card">
+      <div class="bar-chart" id="week-chart"><div class="loading"><span class="spinner"></span></div></div>
+    </div>
+
+    <div class="section-title">آخر المبيعات</div>
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>التاريخ</th><th>العميل</th><th>المبلغ</th><th>الدفع</th></tr></thead>
+          <tbody id="recent-sales"><tr><td colspan="4" class="loading"><span class="spinner"></span></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="section-title">تنبيهات</div>
+    <div id="alerts-list"><div class="loading"><span class="spinner"></span></div></div>
+  </div>
+
+  <!-- ===== الأبقار ===== -->
+  <div class="page" id="page-cows">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">سجل الأبقار</span>
+        <button class="btn btn-primary btn-sm" onclick="toggleForm('cow-form')">+ إضافة بقرة</button>
+      </div>
+      <div id="cow-form" style="display:none; margin-bottom:16px">
+        <div class="form-grid">
+          <div class="form-group"><label>الاسم / الرقم</label><input type="text" id="cow-name" placeholder="مثال: نجمة أو بقرة 1"></div>
+          <div class="form-group"><label>السلالة</label>
+            <select id="cow-breed"><option>هولشتاين</option><option>جيرسي</option><option>عربية</option><option>بني سويسري</option></select>
+          </div>
+          <div class="form-group"><label>تاريخ الميلاد</label><input type="date" id="cow-birth"></div>
+          <div class="form-group"><label>الحالة الصحية</label>
+            <select id="cow-health"><option value="healthy">سليمة</option><option value="pregnant">حامل</option><option value="sick">مريضة</option></select>
+          </div>
+          <div class="form-group"><label>إنتاج يومي متوقع (لتر)</label><input type="number" id="cow-daily" value="15" min="0" step="0.5"></div>
+          <div class="form-group"><label>ملاحظات</label><input type="text" id="cow-notes" placeholder="أي ملاحظات..."></div>
+        </div>
+        <div class="btn-row">
+          <button class="btn" onclick="toggleForm('cow-form')">إلغاء</button>
+          <button class="btn btn-primary" onclick="addCow()">حفظ البقرة</button>
+        </div>
+      </div>
+      <div class="cow-grid" id="cows-grid"><div class="loading"><span class="spinner"></span></div></div>
+    </div>
+  </div>
+
+  <!-- ===== إنتاج الحليب ===== -->
+  <div class="page" id="page-milk">
+    <div class="card">
+      <div class="card-header"><span class="card-title">تسجيل الحلب اليومي</span></div>
+      <div class="form-grid" style="margin-bottom:14px">
+        <div class="form-group"><label>التاريخ</label><input type="date" id="milk-date"></div>
+        <div class="form-group"><label>وقت الحلب</label>
+          <select id="milk-session"><option value="صباح">صباحي</option><option value="مساء">مسائي</option></select>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>البقرة</th><th>الكمية (لتر)</th><th>الجودة</th><th>ملاحظة</th></tr></thead>
+          <tbody id="milk-rows"></tbody>
+        </table>
+      </div>
+      <div class="btn-row" style="align-items:center">
+        <span style="font-size:13px;color:var(--text2)">الإجمالي: <strong id="milk-total">0</strong> لتر</span>
+        <button class="btn btn-primary" onclick="saveMilk()">حفظ السجل</button>
+      </div>
+    </div>
+    <div class="section-title">سجل الإنتاج — اضغط على أي سجل لتعديله أو حذفه</div>
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>التاريخ</th><th>الوقت</th><th>الإجمالي</th><th>المتوسط/بقرة</th><th></th></tr></thead>
+          <tbody id="milk-history"><tr><td colspan="5" class="loading"><span class="spinner"></span></td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- نافذة تعديل سجل الحليب -->
+    <div id="milk-edit-modal" style="display:none; background:rgba(0,0,0,0.4); position:fixed; top:0; left:0; width:100%; height:100%; z-index:500; align-items:center; justify-content:center;">
+      <div style="background:var(--surface); border-radius:var(--radius); padding:20px; width:90%; max-width:480px; margin:auto; margin-top:60px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+          <span style="font-size:15px; font-weight:600;">تعديل سجل الحلب</span>
+          <button onclick="closeMilkEdit()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text2);">×</button>
+        </div>
+        <div style="font-size:12px; color:var(--text2); margin-bottom:12px;" id="milk-edit-info"></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>البقرة</th><th>الكمية (لتر)</th></tr></thead>
+            <tbody id="milk-edit-rows"></tbody>
+          </table>
+        </div>
+        <div style="margin-top:12px; padding-top:10px; border-top:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:13px; color:var(--text2);">الإجمالي: <strong id="milk-edit-total">0</strong> لتر</span>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-danger btn-sm" onclick="deleteMilkSession()">حذف السجل</button>
+          <button class="btn" onclick="closeMilkEdit()">إلغاء</button>
+          <button class="btn btn-primary" onclick="saveMilkEdit()">حفظ التعديلات</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== المنتجات ===== -->
+  <div class="page" id="page-products">
+    <div class="tab-bar">
+      <button class="tab-btn active" onclick="switchTab('prod','inventory',this)">المخزون</button>
+      <button class="tab-btn" onclick="switchTab('prod','mfg',this)">تسجيل تصنيع</button>
+      <button class="tab-btn" onclick="switchTab('prod','mfg-hist',this)">سجل التصنيع</button>
+    </div>
+    <div id="prod-tab-inventory">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">المخزون الحالي</span>
+          <button class="btn btn-primary btn-sm" onclick="toggleForm('prod-form')">+ منتج جديد</button>
+        </div>
+        <div id="prod-form" style="display:none;margin-bottom:14px">
+          <div class="form-grid">
+            <div class="form-group"><label>اسم المنتج</label><input type="text" id="p-name" placeholder="جبن أبيض..."></div>
+            <div class="form-group"><label>الوحدة</label>
+              <select id="p-unit"><option>كغ</option><option>لتر</option><option>قطعة</option></select>
+            </div>
+            <div class="form-group"><label>الكمية الحالية</label><input type="number" id="p-qty" value="0" min="0"></div>
+            <div class="form-group"><label>الحد الأدنى للتنبيه</label><input type="number" id="p-min" value="5" min="0"></div>
+            <div class="form-group"><label>تكلفة الوحدة (ل.س)</label><input type="number" id="p-cost" step="0.001" value="0"></div>
+            <div class="form-group"><label>سعر البيع (ل.س)</label><input type="number" id="p-price" step="0.001" value="0"></div>
+          </div>
+          <div class="btn-row">
+            <button class="btn" onclick="toggleForm('prod-form')">إلغاء</button>
+            <button class="btn btn-primary" onclick="addProduct()">حفظ المنتج</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>المنتج</th><th>الكمية</th><th>الوحدة</th><th>سعر التكلفة</th><th>سعر البيع</th><th>الحالة</th><th></th></tr></thead>
+            <tbody id="inventory-table"><tr><td colspan="7" class="loading"><span class="spinner"></span></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- سجل تعديلات المخزون -->
+    <div id="prod-tab-inv-log" style="display:none">
+      <div class="card">
+        <div class="card-header"><span class="card-title">سجل جميع تعديلات المخزون</span></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>التاريخ والوقت</th><th>المنتج</th><th>نوع التعديل</th><th>قبل</th><th>التغيير</th><th>بعد</th><th>السبب</th></tr></thead>
+            <tbody id="inv-log-table"><tr><td colspan="7" class="loading"><span class="spinner"></span></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- نافذة تعديل المخزون -->
+    <div id="inv-edit-modal" style="display:none; background:rgba(0,0,0,0.4); position:fixed; top:0; left:0; width:100%; height:100%; z-index:500; align-items:center; justify-content:center;">
+      <div style="background:var(--surface); border-radius:var(--radius); padding:20px; width:90%; max-width:420px; margin:auto; margin-top:80px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+          <span style="font-size:15px; font-weight:600;" id="inv-edit-title">تعديل المخزون</span>
+          <button onclick="closeInvEdit()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text2);">×</button>
+        </div>
+        <div style="background:var(--bg); border-radius:var(--radius-sm); padding:12px; margin-bottom:14px; font-size:13px;">
+          <div style="color:var(--text2); margin-bottom:4px;">الكمية الحالية</div>
+          <div style="font-size:22px; font-weight:700;" id="inv-edit-current">—</div>
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>نوع التعديل</label>
+            <select id="inv-edit-type" onchange="updateInvPreview()">
+              <option value="add">إضافة كمية</option>
+              <option value="subtract">خصم كمية</option>
+              <option value="set">تعيين كمية محددة</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>الكمية</label>
+            <input type="number" id="inv-edit-qty" min="0" step="0.1" value="0" oninput="updateInvPreview()">
+          </div>
+          <div class="form-group full">
+            <label>سبب التعديل</label>
+            <input type="text" id="inv-edit-reason" placeholder="مثال: تلف، جرد، تصحيح خطأ...">
+          </div>
+        </div>
+        <div style="background:var(--green-light); border-radius:var(--radius-sm); padding:10px 14px; margin:12px 0; font-size:13px; display:flex; justify-content:space-between;">
+          <span style="color:var(--text2);">الكمية بعد التعديل</span>
+          <span style="font-weight:700; color:var(--green); font-size:16px;" id="inv-edit-preview">—</span>
+        </div>
+        <div class="btn-row">
+          <button class="btn" onclick="closeInvEdit()">إلغاء</button>
+          <button class="btn btn-primary" onclick="saveInvEdit()">حفظ التعديل</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- نافذة تعديل الأسعار -->
+    <div id="price-edit-modal" style="display:none; background:rgba(0,0,0,0.4); position:fixed; top:0; left:0; width:100%; height:100%; z-index:500; align-items:center; justify-content:center;">
+      <div style="background:var(--surface); border-radius:var(--radius); padding:20px; width:90%; max-width:420px; margin:auto; margin-top:80px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+          <span style="font-size:15px; font-weight:600;" id="price-edit-title">تعديل الأسعار</span>
+          <button onclick="closePriceEdit()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text2);">×</button>
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>سعر التكلفة (ل.س)</label>
+            <input type="number" id="price-cost" step="1" min="0">
+          </div>
+          <div class="form-group">
+            <label>سعر البيع (ل.س)</label>
+            <input type="number" id="price-sell" step="1" min="0">
+          </div>
+        </div>
+        <div style="margin-top:10px; padding:10px; background:var(--bg); border-radius:var(--radius-sm); font-size:12px; color:var(--text2);">
+          هامش الربح: <strong id="price-margin" style="color:var(--green)">—</strong>
+        </div>
+        <div class="btn-row">
+          <button class="btn" onclick="closePriceEdit()">إلغاء</button>
+          <button class="btn btn-primary" onclick="savePriceEdit()">حفظ الأسعار</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="prod-tab-mfg" style="display:none">
+      <div class="card">
+        <div class="card-header"><span class="card-title">تسجيل دفعة تصنيع</span></div>
+        <div class="form-grid">
+          <div class="form-group"><label>المنتج</label><select id="mfg-product"></select></div>
+          <div class="form-group"><label>تاريخ التصنيع</label><input type="date" id="mfg-date"></div>
+          <div class="form-group"><label>حليب مستخدم (لتر)</label><input type="number" id="mfg-milk" min="0" step="0.5" placeholder="0"></div>
+          <div class="form-group"><label>الكمية المنتجة (كغ/لتر)</label><input type="number" id="mfg-qty" min="0" step="0.1" placeholder="0"></div>
+          <div class="form-group"><label>كلوريد الكالسيوم (غرام)</label><input type="number" id="mfg-calcium" min="0" step="0.1" placeholder="0" value="0"></div>
+          <div class="form-group"><label>المنفحة (مل)</label><input type="number" id="mfg-rennet" min="0" step="0.1" placeholder="0" value="0"></div>
+          <div class="form-group"><label>حليب البودرة (غرام)</label><input type="number" id="mfg-milkpowder" min="0" step="1" placeholder="0" value="0"></div>
+          <div class="form-group"><label>تكاليف إضافية (ل.س)</label><input type="number" id="mfg-cost" value="0" step="0.001"></div>
+          <div class="form-group"><label>تاريخ الصلاحية</label><input type="date" id="mfg-expiry"></div>
+          <div class="form-group"><label>ملاحظات</label><input type="text" id="mfg-notes" placeholder="أي ملاحظات على الدفعة..."></div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="addProduction()">تسجيل الدفعة</button>
+        </div>
+      </div>
+    </div>
+    <div id="prod-tab-mfg-hist" style="display:none">
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>التاريخ</th><th>المنتج</th><th>حليب</th><th>الكمية</th><th>كلوريد الكالسيوم</th><th>المنفحة</th><th>بودرة</th><th>الصلاحية</th></tr></thead>
+            <tbody id="mfg-history"><tr><td colspan="8" class="loading"><span class="spinner"></span></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== المبيعات ===== -->
+  <div class="page" id="page-sales">
+    <div class="tab-bar">
+      <button class="tab-btn active" onclick="switchTab('sale','new',this)">فاتورة جديدة</button>
+      <button class="tab-btn" onclick="switchTab('sale','history',this)">السجل</button>
+      <button class="tab-btn" onclick="switchTab('sale','clients',this)">العملاء</button>
+    </div>
+
+    <div id="sale-tab-new">
+      <div class="card">
+        <div class="card-header"><span class="card-title">فاتورة مبيعات جديدة</span></div>
+        <div class="form-grid" style="margin-bottom:14px">
+          <div class="form-group"><label>العميل</label><select id="sale-client"><option value="">-- اختر عميل --</option></select></div>
+          <div class="form-group"><label>التاريخ</label><input type="date" id="sale-date"></div>
+        </div>
+        <div style="font-size:13px;font-weight:600;margin-bottom:8px">أصناف الفاتورة</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>المنتج</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th><th></th></tr></thead>
+            <tbody id="sale-items-table"></tbody>
+          </table>
+        </div>
+        <button class="btn btn-sm" style="margin-top:8px" onclick="addSaleItem()">+ إضافة صنف</button>
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+          <div>
+            <div style="font-size:12px;color:var(--text2);margin-bottom:2px">إجمالي الفاتورة</div>
+            <div class="inv-total" id="sale-grand-total">0.000 ل.س</div>
+          </div>
+          <div class="form-group" style="width:160px">
+            <label>طريقة الدفع</label>
+            <select id="sale-payment"><option value="نقد">نقد</option><option value="آجل">آجل (دين)</option><option value="تحويل">تحويل بنكي</option></select>
+          </div>
+        </div>
+        <div class="btn-row"><button class="btn btn-primary" onclick="saveSale()">إصدار الفاتورة</button></div>
+      </div>
+    </div>
+
+    <div id="sale-tab-history" style="display:none">
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>#</th><th>التاريخ</th><th>العميل</th><th>المبلغ</th><th>الدفع</th></tr></thead>
+            <tbody id="sales-history"><tr><td colspan="5" class="loading"><span class="spinner"></span></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="sale-tab-clients" style="display:none">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">العملاء</span>
+          <button class="btn btn-primary btn-sm" onclick="toggleForm('client-form')">+ عميل جديد</button>
+        </div>
+        <div id="client-form" style="display:none;margin-bottom:14px">
+          <div class="form-grid">
+            <div class="form-group"><label>اسم العميل</label><input type="text" id="c-name"></div>
+            <div class="form-group"><label>رقم الهاتف</label><input type="tel" id="c-phone"></div>
+            <div class="form-group"><label>النوع</label>
+              <select id="c-type"><option>أفراد</option><option>مطعم</option><option>محل</option><option>مستودع</option></select>
+            </div>
+            <div class="form-group"><label>ملاحظات</label><input type="text" id="c-notes"></div>
+          </div>
+          <div class="btn-row">
+            <button class="btn" onclick="toggleForm('client-form')">إلغاء</button>
+            <button class="btn btn-primary" onclick="addClient()">حفظ العميل</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>الاسم</th><th>الهاتف</th><th>النوع</th><th>الديون المستحقة</th></tr></thead>
+            <tbody id="clients-table"><tr><td colspan="4" class="loading"><span class="spinner"></span></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== الحسابات ===== -->
+  <div class="page" id="page-accounts">
+    <div class="tab-bar">
+      <button class="tab-btn active" onclick="switchTab('acc','summary',this)">الملخص</button>
+      <button class="tab-btn" onclick="switchTab('acc','expenses',this)">المصاريف</button>
+      <button class="tab-btn" onclick="switchTab('acc','salaries',this)">المعاشات</button>
+      <button class="tab-btn" onclick="switchTab('acc','report',this)">تقرير الربح</button>
+    </div>
+
+    <div id="acc-tab-summary">
+      <div class="kpi-grid">
+        <div class="kpi"><div class="kpi-label">إجمالي الإيرادات</div><div class="kpi-value" id="acc-rev" style="color:var(--green)">—</div><div class="kpi-unit">ل.س</div></div>
+        <div class="kpi"><div class="kpi-label">إجمالي المصاريف</div><div class="kpi-value" id="acc-exp" style="color:var(--red)">—</div><div class="kpi-unit">ل.س</div></div>
+        <div class="kpi"><div class="kpi-label">إجمالي المعاشات</div><div class="kpi-value" id="acc-sal" style="color:var(--amber)">—</div><div class="kpi-unit">ل.س</div></div>
+        <div class="kpi"><div class="kpi-label">صافي الربح</div><div class="kpi-value" id="acc-net">—</div><div class="kpi-unit">ل.س</div></div>
+        <div class="kpi"><div class="kpi-label">ديون مستحقة</div><div class="kpi-value" id="acc-debt" style="color:var(--amber)">—</div><div class="kpi-unit">ل.س</div></div>
+      </div>
+      <div class="section-title">توزيع المصاريف</div>
+      <div class="card" id="expense-chart"><div class="loading"><span class="spinner"></span></div></div>
+    </div>
+
+    <div id="acc-tab-expenses" style="display:none">
+      <div class="card">
+        <div class="card-header"><span class="card-title">تسجيل مصروف جديد</span></div>
+        <div class="form-grid">
+          <div class="form-group"><label>التصنيف</label>
+            <select id="exp-cat">
+              <option>علف الأبقار</option><option>بيطري</option>
+              <option>كهرباء وماء</option><option>مواد تصنيع</option><option>صيانة</option><option>أخرى</option>
+            </select>
+          </div>
+          <div class="form-group"><label>التاريخ</label><input type="date" id="exp-date"></div>
+          <div class="form-group"><label>المبلغ (ل.س)</label><input type="number" id="exp-amount" step="1" min="0"></div>
+          <div class="form-group"><label>الوصف</label><input type="text" id="exp-desc" placeholder="تفاصيل المصروف..."></div>
+        </div>
+        <div class="btn-row"><button class="btn btn-primary" onclick="addExpense()">تسجيل المصروف</button></div>
+      </div>
+      <div class="section-title">سجل المصاريف</div>
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>التاريخ</th><th>التصنيف</th><th>الوصف</th><th>المبلغ (ل.س)</th></tr></thead>
+            <tbody id="expenses-list"><tr><td colspan="4" class="loading"><span class="spinner"></span></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- تبويب المعاشات -->
+    <div id="acc-tab-salaries" style="display:none">
+      <div class="card">
+        <div class="card-header"><span class="card-title">تسجيل معاش / راتب</span></div>
+        <div class="form-grid">
+          <div class="form-group"><label>اسم الموظف</label><input type="text" id="sal-name" placeholder="اسم الموظف..."></div>
+          <div class="form-group"><label>الشهر</label><input type="month" id="sal-month"></div>
+          <div class="form-group"><label>الراتب الأساسي (ل.س)</label><input type="number" id="sal-base" step="1" min="0"></div>
+          <div class="form-group"><label>البدلات والحوافز (ل.س)</label><input type="number" id="sal-bonus" step="1" min="0" value="0"></div>
+          <div class="form-group"><label>الخصومات (ل.س)</label><input type="number" id="sal-deduct" step="1" min="0" value="0"></div>
+          <div class="form-group"><label>ملاحظات</label><input type="text" id="sal-notes" placeholder="أي ملاحظات..."></div>
+        </div>
+        <div style="background:var(--green-light); border-radius:var(--radius-sm); padding:10px 14px; margin:10px 0; display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:13px; color:var(--text2);">صافي المعاش</span>
+          <span style="font-size:18px; font-weight:700; color:var(--green);" id="sal-net-preview">0 ل.س</span>
+        </div>
+        <div class="btn-row"><button class="btn btn-primary" onclick="addSalary()">صرف المعاش</button></div>
+      </div>
+      <div class="section-title">سجل المعاشات</div>
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>الشهر</th><th>الموظف</th><th>الأساسي</th><th>البدلات</th><th>الخصومات</th><th>الصافي</th><th>ملاحظات</th></tr></thead>
+            <tbody id="salaries-list"><tr><td colspan="7" class="loading"><span class="spinner"></span></td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="acc-tab-report" style="display:none">
+      <div class="card" id="pl-report"><div class="loading"><span class="spinner"></span></div></div>
+    </div>
+  </div>
+
+</div><!-- end main -->
+
+<div id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════
+//  SUPABASE CONFIG
+// ═══════════════════════════════════════════
+const SUPABASE_URL = 'https://tyiuynmostzhmuftlpfx.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR5aXV5bm1vc3R6aG11ZnRscGZ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUyODk0NjcsImV4cCI6MjA5MDg2NTQ2N30.OF855esigP069HYegnYF8BkjeGK-Q4CZe_t9gjzKVoo';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ═══════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════
+const todayStr = new Date().toISOString().split('T')[0];
+document.getElementById('today-date').textContent = new Date().toLocaleDateString('ar-KW',{weekday:'short',year:'numeric',month:'short',day:'numeric'});
+
+// Set date defaults
+['milk-date','sale-date','exp-date','mfg-date'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.value = todayStr;
+});
+// شهر المعاش الافتراضي
+const salMonthEl = document.getElementById('sal-month');
+if (salMonthEl) salMonthEl.value = todayStr.slice(0,7);
+// تحديث هامش الربح في نافذة الأسعار
+['price-cost','price-sell'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', updatePriceMargin);
+});
+const expiryEl = document.getElementById('mfg-expiry');
+if (expiryEl) { const d = new Date(); d.setDate(d.getDate()+30); expiryEl.value = d.toISOString().split('T')[0]; }
+
+// Sale items state
+let saleItems = [{ product: '', qty: 1, price: 0 }];
+
+// ═══════════════════════════════════════════
+//  UTILS
+// ═══════════════════════════════════════════
+function toast(msg, ok=true) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.background = ok ? '#1a1a1a' : '#A32D2D';
+  t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', 3000);
+}
+
+function toggleForm(id) {
+  const el = document.getElementById(id);
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function setSyncStatus(online) {
+  const dot = document.getElementById('sync-dot');
+  dot.className = 'sync-indicator' + (online ? '' : ' offline');
+  dot.title = online ? 'متصل بقاعدة البيانات' : 'خطأ في الاتصال';
+}
+
+const CUR = 'ل.س';
+function fmt(n) { return (+n || 0).toLocaleString('ar-SY', {minimumFractionDigits:0, maximumFractionDigits:0}); }
+function fmtInt(n) { return Math.round(+n || 0); }
+
+// ═══════════════════════════════════════════
+//  PAGE ROUTING
+// ═══════════════════════════════════════════
+const pageLoaders = {
+  dashboard: loadDashboard,
+  cows: loadCows,
+  milk: loadMilk,
+  products: loadInventory,
+  sales: () => { loadSalesHistory(); loadClients(); populateClientSelect(); renderSaleItems(); },
+  accounts: loadAccounts,
+};
+
+function showPage(name, btn) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (pageLoaders[name]) pageLoaders[name]();
+}
+
+function switchTab(prefix, tab, btn) {
+  document.querySelectorAll(`[id^="${prefix}-tab-"]`).forEach(el => el.style.display = 'none');
+  document.getElementById(`${prefix}-tab-${tab}`).style.display = 'block';
+  btn.closest('.tab-bar').querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (prefix === 'prod' && tab === 'mfg-hist') loadMfgHistory();
+  if (prefix === 'prod' && tab === 'inventory') loadInventory();
+  if (prefix === 'prod' && tab === 'inv-log') loadInvLog();
+  if (prefix === 'prod' && tab === 'mfg') populateProductSelect();
+  if (prefix === 'sale' && tab === 'history') loadSalesHistory();
+  if (prefix === 'sale' && tab === 'clients') loadClients();
+  if (prefix === 'acc' && tab === 'expenses') loadExpenses();
+  if (prefix === 'acc' && tab === 'salaries') loadSalaries();
+  if (prefix === 'acc' && tab === 'report') loadPLReport();
+  if (prefix === 'acc' && tab === 'summary') loadAccounts();
+}
+
+// ═══════════════════════════════════════════
+//  DASHBOARD
+// ═══════════════════════════════════════════
+async function loadDashboard() {
+  try {
+    setSyncStatus(true);
+
+    // KPIs
+    const { data: cows } = await sb.from('cows').select('id');
+    document.getElementById('kpi-cows').textContent = cows?.length || 0;
+
+    const { data: milkToday } = await sb.from('milk_records').select('liters').eq('record_date', todayStr);
+    const todayMilk = (milkToday || []).reduce((s, r) => s + +r.liters, 0);
+    document.getElementById('kpi-milk').textContent = todayMilk.toFixed(1);
+
+    const monthStart = todayStr.slice(0, 7) + '-01';
+    const { data: monthlySales } = await sb.from('sales').select('total').gte('sale_date', monthStart);
+    const salesTotal = (monthlySales || []).reduce((s, r) => s + +r.total, 0);
+    document.getElementById('kpi-sales').textContent = fmt(salesTotal);
+
+    const { data: allExp } = await sb.from('expenses').select('amount').gte('expense_date', monthStart);
+    const expTotal = (allExp || []).reduce((s, r) => s + +r.amount, 0);
+    const profit = salesTotal - expTotal;
+    const profitEl = document.getElementById('kpi-profit');
+    profitEl.textContent = fmt(profit);
+    profitEl.style.color = profit >= 0 ? 'var(--green)' : 'var(--red)';
+
+    // Week chart
+    const week7 = new Date(); week7.setDate(week7.getDate() - 6);
+    const { data: weekData } = await sb.from('milk_records').select('record_date,liters').gte('record_date', week7.toISOString().split('T')[0]).order('record_date');
+    const grouped = {};
+    (weekData || []).forEach(r => { grouped[r.record_date] = (grouped[r.record_date] || 0) + +r.liters; });
+    const days = ['أحد','إثن','ثلث','أرب','خمس','جمع','سبت'];
+    const chartEl = document.getElementById('week-chart');
+    if (!Object.keys(grouped).length) {
+      chartEl.innerHTML = '<div class="empty">لا توجد بيانات حليب بعد</div>';
+    } else {
+      const maxVal = Math.max(...Object.values(grouped), 1);
+      chartEl.innerHTML = Object.entries(grouped).map(([date, val]) => {
+        const d = new Date(date + 'T00:00:00'); const lbl = days[d.getDay()];
+        const h = Math.round((val / maxVal) * 90);
+        return `<div class="bar-col"><div class="bar-val">${val.toFixed(0)}</div><div class="bar" style="height:${h}px"></div><div class="bar-lbl">${lbl}</div></div>`;
+      }).join('');
+    }
+
+    // Recent sales
+    const { data: recentSales } = await sb.from('sales').select('id,sale_date,total,payment_method,clients(name)').order('created_at', {ascending:false}).limit(5);
+    const salesTb = document.getElementById('recent-sales');
+    if (!recentSales?.length) { salesTb.innerHTML = '<tr><td colspan="4" class="empty">لا توجد مبيعات بعد</td></tr>'; }
+    else {
+      salesTb.innerHTML = recentSales.map(s =>
+        `<tr><td>${s.sale_date}</td><td>${s.clients?.name || '—'}</td><td>${fmt(s.total)}</td>
+        <td><span class="badge ${s.payment_method==='آجل'?'badge-amber':'badge-green'}">${s.payment_method}</span></td></tr>`
+      ).join('');
+    }
+
+    // Alerts
+    const { data: sickCows } = await sb.from('cows').select('name,notes').eq('health', 'sick');
+    const { data: lowStock } = await sb.from('products').select('name,qty,min_qty,unit');
+    const { data: debtClients } = await sb.from('clients').select('name,debt').gt('debt', 0);
+    const alertsDiv = document.getElementById('alerts-list');
+    let html = '';
+    (sickCows || []).forEach(c => html += `<div class="alert alert-danger">⚠️ <div><strong>${c.name}</strong> تحتاج رعاية طبية. ${c.notes || ''}</div></div>`);
+    (lowStock || []).filter(p => +p.qty <= +p.min_qty).forEach(p => html += `<div class="alert alert-warning">📦 مخزون منخفض: <strong>${p.name}</strong> — متبقي ${p.qty} ${p.unit}</div>`);
+    (debtClients || []).forEach(c => html += `<div class="alert alert-info">💰 دين مستحق: <strong>${c.name}</strong> — ${fmt(c.debt)} ل.س</div>`);
+    alertsDiv.innerHTML = html || '<div class="alert alert-success">✅ لا توجد تنبيهات</div>';
+
+  } catch (e) {
+    setSyncStatus(false);
+    toast('خطأ في تحميل البيانات: ' + e.message, false);
+  }
+}
+
+// ═══════════════════════════════════════════
+//  COWS
+// ═══════════════════════════════════════════
+async function loadCows() {
+  const { data, error } = await sb.from('cows').select('*').order('name');
+  if (error) { toast('خطأ في تحميل الأبقار', false); return; }
+  const healthLabel = {healthy:'سليمة', pregnant:'حامل', sick:'مريضة'};
+  const healthBadge = {healthy:'badge-green', pregnant:'badge-amber', sick:'badge-red'};
+  const grid = document.getElementById('cows-grid');
+  if (!data?.length) { grid.innerHTML = '<div class="empty">لا توجد أبقار مسجلة بعد. أضف أولى أبقارك!</div>'; return; }
+  grid.innerHTML = data.map(c => `
+    <div class="cow-card">
+      <div class="cow-name">${c.name}</div>
+      <div class="cow-breed">${c.breed || ''}</div>
+      <div class="cow-milk">${c.daily_liters || 0}</div>
+      <div class="cow-milk-unit">لتر/يوم متوقع</div>
+      <div style="margin-top:8px"><span class="badge ${healthBadge[c.health]||'badge-teal'}">${healthLabel[c.health]||c.health}</span></div>
+      ${c.notes ? `<div style="font-size:11px;color:var(--text2);margin-top:4px">${c.notes}</div>` : ''}
+    </div>`).join('');
+}
+
+async function addCow() {
+  const name = document.getElementById('cow-name').value.trim();
+  if (!name) { toast('أدخل اسم البقرة', false); return; }
+  const { error } = await sb.from('cows').insert({
+    name, breed: document.getElementById('cow-breed').value,
+    health: document.getElementById('cow-health').value,
+    daily_liters: +document.getElementById('cow-daily').value || 0,
+    birth_date: document.getElementById('cow-birth').value || null,
+    notes: document.getElementById('cow-notes').value,
+  });
+  if (error) { toast('خطأ: ' + error.message, false); return; }
+  document.getElementById('cow-name').value = '';
+  document.getElementById('cow-notes').value = '';
+  toggleForm('cow-form');
+  loadCows();
+  toast('تمت إضافة البقرة بنجاح ✓');
+}
+
+// ═══════════════════════════════════════════
+//  MILK
+// ═══════════════════════════════════════════
+async function loadMilk() {
+  const { data: cows } = await sb.from('cows').select('id,name,daily_liters').order('name');
+  const rows = document.getElementById('milk-rows');
+  if (!cows?.length) { rows.innerHTML = '<tr><td colspan="4" class="empty">أضف أبقاراً أولاً</td></tr>'; return; }
+  rows.innerHTML = cows.map(c => `
+    <tr>
+      <td>${c.name}</td>
+      <td><input type="number" min="0" step="0.1" value="${c.daily_liters||0}"
+        style="width:80px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:13px"
+        data-cow="${c.id}" oninput="updateMilkTotal()"></td>
+      <td><select style="font-size:12px;padding:4px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text)">
+        <option>ممتازة</option><option>جيدة</option><option>عادية</option></select></td>
+      <td><input type="text" placeholder="ملاحظة..." style="width:90px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:12px"></td>
+    </tr>`).join('');
+  updateMilkTotal();
+  loadMilkHistory();
+}
+
+function updateMilkTotal() {
+  const inputs = document.querySelectorAll('#milk-rows input[type=number]');
+  let t = 0; inputs.forEach(i => t += +i.value || 0);
+  document.getElementById('milk-total').textContent = t.toFixed(1);
+}
+
+async function saveMilk() {
+  const date = document.getElementById('milk-date').value;
+  const session = document.getElementById('milk-session').value;
+  const inputs = document.querySelectorAll('#milk-rows input[type=number]');
+  const records = [];
+  inputs.forEach(inp => {
+    const liters = +inp.value;
+    if (liters > 0) records.push({ record_date: date, session, cow_id: +inp.dataset.cow, liters, quality: 'جيدة' });
+  });
+  if (!records.length) { toast('أدخل كميات الحليب', false); return; }
+  const { error } = await sb.from('milk_records').insert(records);
+  if (error) { toast('خطأ: ' + error.message, false); return; }
+  loadMilkHistory();
+  toast('تم حفظ سجل الحلب ✓');
+}
+
+async function loadMilkHistory() {
+  const { data } = await sb.from('milk_records').select('id,record_date,session,liters,cow_id,cows(name)').order('record_date', {ascending:false}).limit(200);
+  const grouped = {};
+  (data || []).forEach(r => {
+    const k = r.record_date + '|' + r.session;
+    if (!grouped[k]) grouped[k] = { date: r.record_date, session: r.session, total: 0, records: [] };
+    grouped[k].total += +r.liters;
+    grouped[k].records.push(r);
+  });
+  const tb = document.getElementById('milk-history');
+  const rows = Object.values(grouped);
+  if (!rows.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">لا توجد سجلات بعد</td></tr>'; return; }
+  const { data: cows } = await sb.from('cows').select('id');
+  const cowCount = cows?.length || 1;
+  tb.innerHTML = rows.map((r, idx) => {
+    const key = encodeURIComponent(r.date + '|' + r.session);
+    return `<tr>
+      <td>${r.date}</td><td>${r.session}</td>
+      <td><strong>${r.total.toFixed(1)}</strong> لتر</td>
+      <td>${(r.total/cowCount).toFixed(1)} لتر</td>
+      <td><button onclick="openMilkEdit('${r.date}','${r.session}')" class="btn btn-sm" style="font-size:11px;padding:3px 8px;">تعديل</button></td>
+    </tr>`;
+  }).join('');
+}
+
+// حالة تعديل الحليب
+let milkEditData = { date: '', session: '', records: [], cowsList: [] };
+
+async function openMilkEdit(date, session) {
+  milkEditData.date = date;
+  milkEditData.session = session;
+  const { data: records } = await sb.from('milk_records').select('id,liters,cow_id,cows(name)').eq('record_date', date).eq('session', session);
+  const { data: allCows } = await sb.from('cows').select('id,name,daily_liters').order('name');
+  milkEditData.records = records || [];
+  milkEditData.cowsList = allCows || [];
+
+  document.getElementById('milk-edit-info').textContent = `التاريخ: ${date} — الجلسة: ${session}`;
+
+  // بناء الجداول بالأبقار مع الكميات الحالية
+  const recordMap = {};
+  (records || []).forEach(r => { recordMap[r.cow_id] = { id: r.id, liters: r.liters }; });
+
+  const modal = document.getElementById('milk-edit-modal');
+  const editRows = document.getElementById('milk-edit-rows');
+  editRows.innerHTML = (allCows || []).map(c => {
+    const rec = recordMap[c.id];
+    const val = rec ? rec.liters : 0;
+    const recId = rec ? rec.id : '';
+    return `<tr>
+      <td>${c.name}</td>
+      <td><input type="number" min="0" step="0.1" value="${val}"
+        style="width:80px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:13px"
+        data-cow="${c.id}" data-recid="${recId}" oninput="updateMilkEditTotal()"></td>
+    </tr>`;
+  }).join('');
+  updateMilkEditTotal();
+  modal.style.display = 'flex';
+}
+
+function updateMilkEditTotal() {
+  const inputs = document.querySelectorAll('#milk-edit-rows input[type=number]');
+  let t = 0; inputs.forEach(i => t += +i.value || 0);
+  document.getElementById('milk-edit-total').textContent = t.toFixed(1);
+}
+
+function closeMilkEdit() {
+  document.getElementById('milk-edit-modal').style.display = 'none';
+}
+
+async function saveMilkEdit() {
+  const inputs = document.querySelectorAll('#milk-edit-rows input[type=number]');
+  const date = milkEditData.date;
+  const session = milkEditData.session;
+
+  // احذف كل السجلات القديمة لهذا اليوم والجلسة
+  await sb.from('milk_records').delete().eq('record_date', date).eq('session', session);
+
+  // أضف السجلات الجديدة (الكميات > 0 فقط)
+  const newRecords = [];
+  inputs.forEach(inp => {
+    const liters = +inp.value;
+    if (liters > 0) newRecords.push({ record_date: date, session, cow_id: +inp.dataset.cow, liters, quality: 'جيدة' });
+  });
+
+  if (newRecords.length) {
+    const { error } = await sb.from('milk_records').insert(newRecords);
+    if (error) { toast('خطأ في الحفظ: ' + error.message, false); return; }
+  }
+
+  closeMilkEdit();
+  loadMilkHistory();
+  toast('تم تعديل سجل الحلب ✓');
+}
+
+async function deleteMilkSession() {
+  if (!confirm(`هل أنت متأكد من حذف سجل ${milkEditData.date} — ${milkEditData.session}؟`)) return;
+  await sb.from('milk_records').delete().eq('record_date', milkEditData.date).eq('session', milkEditData.session);
+  closeMilkEdit();
+  loadMilkHistory();
+  toast('تم حذف السجل');
+}
+
+// ═══════════════════════════════════════════
+//  PRODUCTS / INVENTORY
+// ═══════════════════════════════════════════
+async function loadInventory() {
+  const { data, error } = await sb.from('products').select('*').order('name');
+  const tb = document.getElementById('inventory-table');
+  if (error) { tb.innerHTML = '<tr><td colspan="7" class="empty">خطأ في تحميل المخزون</td></tr>'; return; }
+  if (!data?.length) { tb.innerHTML = '<tr><td colspan="7" class="empty">لا توجد منتجات بعد</td></tr>'; return; }
+  tb.innerHTML = data.map(p => {
+    const status = +p.qty > +p.min_qty * 2 ? ['متوفر','badge-green'] : +p.qty > +p.min_qty ? ['محدود','badge-amber'] : ['منخفض','badge-red'];
+    const margin = +p.price_per_unit > 0 ? Math.round(((+p.price_per_unit - +p.cost_per_unit) / +p.price_per_unit) * 100) : 0;
+    return `<tr>
+      <td>${p.name}</td><td><strong>${p.qty}</strong></td><td>${p.unit}</td>
+      <td>${fmt(p.cost_per_unit)} ل.س</td>
+      <td>${fmt(p.price_per_unit)} ل.س <span style="font-size:10px;color:var(--green)">(${margin}%)</span></td>
+      <td><span class="badge ${status[1]}">${status[0]}</span></td>
+      <td style="display:flex;gap:4px;flex-wrap:nowrap">
+        <button onclick="openInvEdit('${p.name}',${p.qty},'${p.unit}')" class="btn btn-sm" style="font-size:11px;padding:3px 8px;">كمية</button>
+        <button onclick="openPriceEdit('${p.name}',${p.cost_per_unit},${p.price_per_unit})" class="btn btn-sm" style="font-size:11px;padding:3px 8px;background:var(--blue-light);color:var(--blue);border-color:var(--blue)">سعر</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function addProduct() {
+  const name = document.getElementById('p-name').value.trim();
+  if (!name) { toast('أدخل اسم المنتج', false); return; }
+  const newQty = +document.getElementById('p-qty').value || 0;
+  const { error } = await sb.from('products').upsert({
+    name, unit: document.getElementById('p-unit').value,
+    qty: newQty,
+    min_qty: +document.getElementById('p-min').value || 5,
+    cost_per_unit: +document.getElementById('p-cost').value || 0,
+    price_per_unit: +document.getElementById('p-price').value || 0,
+  }, { onConflict: 'name' });
+  if (error) { toast('خطأ: ' + error.message, false); return; }
+  // سجّل في inventory_logs
+  if (newQty > 0) {
+    await sb.from('inventory_logs').insert({
+      product_name: name, change_type: 'إضافة منتج جديد',
+      qty_before: 0, qty_after: newQty, qty_change: newQty, reason: 'تسجيل منتج جديد'
+    });
+  }
+  document.getElementById('p-name').value = '';
+  toggleForm('prod-form');
+  loadInventory();
+  toast('تم حفظ المنتج ✓');
+}
+
+// حالة تعديل المخزون
+let invEditState = { name: '', unit: '', currentQty: 0 };
+
+function openInvEdit(name, currentQty, unit) {
+  invEditState = { name, unit, currentQty: +currentQty };
+  document.getElementById('inv-edit-title').textContent = `تعديل مخزون: ${name}`;
+  document.getElementById('inv-edit-current').textContent = `${currentQty} ${unit}`;
+  document.getElementById('inv-edit-qty').value = 0;
+  document.getElementById('inv-edit-reason').value = '';
+  document.getElementById('inv-edit-type').value = 'add';
+  document.getElementById('inv-edit-preview').textContent = `${currentQty} ${unit}`;
+  document.getElementById('inv-edit-modal').style.display = 'flex';
+}
+
+function updateInvPreview() {
+  const type = document.getElementById('inv-edit-type').value;
+  const qty = +document.getElementById('inv-edit-qty').value || 0;
+  const cur = invEditState.currentQty;
+  let after;
+  if (type === 'add') after = cur + qty;
+  else if (type === 'subtract') after = Math.max(0, cur - qty);
+  else after = qty;
+  const color = after < cur ? 'var(--red)' : after > cur ? 'var(--green)' : 'var(--text2)';
+  document.getElementById('inv-edit-preview').textContent = `${after.toFixed(1)} ${invEditState.unit}`;
+  document.getElementById('inv-edit-preview').style.color = color;
+}
+
+function closeInvEdit() {
+  document.getElementById('inv-edit-modal').style.display = 'none';
+}
+
+async function saveInvEdit() {
+  const type = document.getElementById('inv-edit-type').value;
+  const inputQty = +document.getElementById('inv-edit-qty').value || 0;
+  const reason = document.getElementById('inv-edit-reason').value.trim();
+  if (!reason) { toast('أدخل سبب التعديل', false); return; }
+  const cur = invEditState.currentQty;
+  let newQty, change, changeLabel;
+  if (type === 'add') { newQty = cur + inputQty; change = inputQty; changeLabel = `إضافة +${inputQty}`; }
+  else if (type === 'subtract') { newQty = Math.max(0, cur - inputQty); change = -(cur - newQty); changeLabel = `خصم -${inputQty}`; }
+  else { newQty = inputQty; change = inputQty - cur; changeLabel = `تعيين = ${inputQty}`; }
+
+  const { error } = await sb.from('products').update({ qty: newQty }).eq('name', invEditState.name);
+  if (error) { toast('خطأ: ' + error.message, false); return; }
+
+  await sb.from('inventory_logs').insert({
+    product_name: invEditState.name,
+    change_type: changeLabel,
+    qty_before: cur,
+    qty_after: newQty,
+    qty_change: change,
+    reason,
+  });
+
+  closeInvEdit();
+  loadInventory();
+  toast(`تم تعديل مخزون ${invEditState.name} ✓`);
+}
+
+async function loadInvLog() {
+  const { data } = await sb.from('inventory_logs').select('*').order('created_at', { ascending: false }).limit(200);
+  const tb = document.getElementById('inv-log-table');
+  if (!data?.length) { tb.innerHTML = '<tr><td colspan="7" class="empty">لا توجد تعديلات مسجلة بعد</td></tr>'; return; }
+  tb.innerHTML = data.map(log => {
+    const dt = new Date(log.created_at).toLocaleString('ar-KW');
+    const changeColor = +log.qty_change > 0 ? 'color:var(--green)' : +log.qty_change < 0 ? 'color:var(--red)' : '';
+    const changeStr = +log.qty_change > 0 ? `+${log.qty_change}` : `${log.qty_change}`;
+    return `<tr>
+      <td style="font-size:11px;white-space:nowrap">${dt}</td>
+      <td><strong>${log.product_name}</strong></td>
+      <td><span class="badge badge-teal" style="font-size:10px">${log.change_type}</span></td>
+      <td style="color:var(--text2)">${log.qty_before}</td>
+      <td style="font-weight:600;${changeColor}">${changeStr}</td>
+      <td style="font-weight:600">${log.qty_after}</td>
+      <td style="color:var(--text2);font-size:12px">${log.reason || '—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function populateProductSelect() {
+  const { data } = await sb.from('products').select('name').order('name');
+  const sel = document.getElementById('mfg-product');
+  sel.innerHTML = (data || []).map(p => `<option value="${p.name}">${p.name}</option>`).join('');
+}
+
+async function addProduction() {
+  const product_name = document.getElementById('mfg-product').value;
+  const qty = +document.getElementById('mfg-qty').value;
+  const milk = +document.getElementById('mfg-milk').value;
+  if (!product_name || !qty || !milk) { toast('أدخل المنتج والحليب والكمية على الأقل', false); return; }
+  const { error: e1 } = await sb.from('productions').insert({
+    prod_date: document.getElementById('mfg-date').value,
+    product_name, milk_used: milk, qty_produced: qty,
+    extra_cost: +document.getElementById('mfg-cost').value || 0,
+    expiry_date: document.getElementById('mfg-expiry').value || null,
+    calcium_chloride: +document.getElementById('mfg-calcium').value || 0,
+    rennet_ml: +document.getElementById('mfg-rennet').value || 0,
+    milk_powder_g: +document.getElementById('mfg-milkpowder').value || 0,
+    notes: document.getElementById('mfg-notes').value || '',
+  });
+  if (e1) { toast('خطأ: ' + e1.message, false); return; }
+  const { data: prod } = await sb.from('products').select('qty').eq('name', product_name).single();
+  if (prod) {
+    await sb.from('products').update({ qty: +prod.qty + qty }).eq('name', product_name);
+  }
+  toast('تم تسجيل دفعة التصنيع ✓');
+  ['mfg-qty','mfg-milk','mfg-calcium','mfg-rennet','mfg-milkpowder','mfg-notes'].forEach(id => {
+    const el = document.getElementById(id); if(el) el.value = id.includes('cost') ? '0' : '';
+  });
+  document.getElementById('mfg-cost').value = '0';
+}
+
+async function loadMfgHistory() {
+  const { data } = await sb.from('productions').select('*').order('prod_date', {ascending:false});
+  const tb = document.getElementById('mfg-history');
+  if (!data?.length) { tb.innerHTML = '<tr><td colspan="8" class="empty">لا توجد سجلات تصنيع</td></tr>'; return; }
+  tb.innerHTML = data.map(p =>
+    `<tr>
+      <td>${p.prod_date}</td><td>${p.product_name}</td>
+      <td>${p.milk_used} لتر</td><td>${p.qty_produced}</td>
+      <td>${p.calcium_chloride || 0} غ</td>
+      <td>${p.rennet_ml || 0} مل</td>
+      <td>${p.milk_powder_g || 0} غ</td>
+      <td>${p.expiry_date||'—'}</td>
+    </tr>`
+  ).join('');
+}
+
+// ═══════════════════════════════════════════
+//  SALES
+// ═══════════════════════════════════════════
+async function populateClientSelect() {
+  const { data } = await sb.from('clients').select('id,name').order('name');
+  const sel = document.getElementById('sale-client');
+  sel.innerHTML = '<option value="">-- اختر عميل --</option>' +
+    (data || []).map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+}
+
+function renderSaleItems() {
+  const tb = document.getElementById('sale-items-table');
+  tb.innerHTML = saleItems.map((item, idx) => `
+    <tr>
+      <td><select onchange="updateSaleItem(${idx},'product',this)" style="font-size:12px;padding:4px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text)" id="sale-prod-${idx}">
+        <option value="">-- اختر --</option></select></td>
+      <td><input type="number" min="0.1" step="0.1" value="${item.qty}"
+        style="width:65px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:13px"
+        oninput="updateSaleItem(${idx},'qty',this.value)"></td>
+      <td><input type="number" step="0.001" value="${item.price}"
+        style="width:75px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:13px"
+        oninput="updateSaleItem(${idx},'price',this.value)"></td>
+      <td>${(item.qty * item.price).toFixed(3)}</td>
+      <td><button onclick="removeSaleItem(${idx})" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:16px;padding:0 4px">×</button></td>
+    </tr>`).join('');
+  // Populate product selects
+  sb.from('products').select('name,price_per_unit').order('name').then(({ data }) => {
+    saleItems.forEach((item, idx) => {
+      const sel = document.getElementById('sale-prod-' + idx);
+      if (!sel) return;
+      sel.innerHTML = '<option value="">-- اختر --</option>' +
+        (data || []).map(p => `<option value="${p.name}" data-price="${p.price_per_unit}" ${item.product===p.name?'selected':''}>${p.name}</option>`).join('');
+    });
+  });
+  updateSaleTotal();
+}
+
+function updateSaleItem(idx, field, val) {
+  if (field === 'product') {
+    saleItems[idx].product = val.value;
+    const opt = val.options[val.selectedIndex];
+    if (opt && opt.dataset.price) saleItems[idx].price = +opt.dataset.price;
+  } else {
+    saleItems[idx][field] = +val;
+  }
+  renderSaleItems();
+}
+
+function addSaleItem() { saleItems.push({ product: '', qty: 1, price: 0 }); renderSaleItems(); }
+function removeSaleItem(idx) {
+  saleItems.splice(idx, 1);
+  if (!saleItems.length) saleItems = [{ product: '', qty: 1, price: 0 }];
+  renderSaleItems();
+}
+
+function updateSaleTotal() {
+  const total = saleItems.reduce((s, i) => s + i.qty * i.price, 0);
+  document.getElementById('sale-grand-total').textContent = total.toFixed(3) + ' ل.س';
+}
+
+async function saveSale() {
+  const clientId = document.getElementById('sale-client').value;
+  if (!clientId) { toast('اختر العميل', false); return; }
+  const total = saleItems.reduce((s, i) => s + i.qty * i.price, 0);
+  if (!total) { toast('أضف منتجات للفاتورة', false); return; }
+  const payment = document.getElementById('sale-payment').value;
+
+  const { data: sale, error } = await sb.from('sales').insert({
+    sale_date: document.getElementById('sale-date').value,
+    client_id: +clientId, total, payment_method: payment,
+  }).select().single();
+  if (error) { toast('خطأ: ' + error.message, false); return; }
+
+  const items = saleItems.filter(i => i.product).map(i => ({
+    sale_id: sale.id, product_name: i.product, qty: i.qty, unit_price: i.price
+  }));
+  if (items.length) await sb.from('sale_items').insert(items);
+
+  if (payment === 'آجل') {
+    const { data: cl } = await sb.from('clients').select('debt').eq('id', +clientId).single();
+    await sb.from('clients').update({ debt: +(cl?.debt || 0) + total }).eq('id', +clientId);
+  }
+
+  saleItems = [{ product: '', qty: 1, price: 0 }];
+  renderSaleItems();
+  toast('تم إصدار الفاتورة بنجاح ✓');
+}
+
+async function loadSalesHistory() {
+  const { data } = await sb.from('sales').select('id,sale_date,total,payment_method,clients(name)').order('created_at', {ascending:false}).limit(100);
+  const tb = document.getElementById('sales-history');
+  if (!data?.length) { tb.innerHTML = '<tr><td colspan="5" class="empty">لا توجد مبيعات بعد</td></tr>'; return; }
+  tb.innerHTML = data.map(s =>
+    `<tr><td>#${s.id}</td><td>${s.sale_date}</td><td>${s.clients?.name||'—'}</td><td>${fmt(s.total)}</td>
+    <td><span class="badge ${s.payment_method==='آجل'?'badge-amber':'badge-green'}">${s.payment_method}</span></td></tr>`
+  ).join('');
+}
+
+async function loadClients() {
+  const { data } = await sb.from('clients').select('*').order('name');
+  const tb = document.getElementById('clients-table');
+  if (!data?.length) { tb.innerHTML = '<tr><td colspan="4" class="empty">لا توجد عملاء بعد</td></tr>'; return; }
+  tb.innerHTML = data.map(c =>
+    `<tr><td>${c.name}</td><td>${c.phone||'—'}</td>
+    <td><span class="badge badge-teal">${c.client_type||'أفراد'}</span></td>
+    <td style="color:${+c.debt>0?'var(--amber)':'var(--text2)'};font-weight:${+c.debt>0?'600':'400'}">${fmt(c.debt)}</td></tr>`
+  ).join('');
+}
+
+async function addClient() {
+  const name = document.getElementById('c-name').value.trim();
+  if (!name) { toast('أدخل اسم العميل', false); return; }
+  const { error } = await sb.from('clients').insert({
+    name, phone: document.getElementById('c-phone').value,
+    client_type: document.getElementById('c-type').value,
+    notes: document.getElementById('c-notes').value, debt: 0,
+  });
+  if (error) { toast('خطأ: ' + error.message, false); return; }
+  document.getElementById('c-name').value = '';
+  document.getElementById('c-phone').value = '';
+  toggleForm('client-form');
+  loadClients();
+  populateClientSelect();
+  toast('تمت إضافة العميل ✓');
+}
+
+// ═══════════════════════════════════════════
+//  PRICE EDIT
+// ═══════════════════════════════════════════
+let priceEditState = { name: '' };
+
+function openPriceEdit(name, cost, sell) {
+  priceEditState.name = name;
+  document.getElementById('price-edit-title').textContent = `تعديل أسعار: ${name}`;
+  document.getElementById('price-cost').value = cost || 0;
+  document.getElementById('price-sell').value = sell || 0;
+  updatePriceMargin();
+  document.getElementById('price-edit-modal').style.display = 'flex';
+}
+
+function updatePriceMargin() {
+  const cost = +document.getElementById('price-cost').value || 0;
+  const sell = +document.getElementById('price-sell').value || 0;
+  const margin = sell > 0 ? Math.round(((sell - cost) / sell) * 100) : 0;
+  const el = document.getElementById('price-margin');
+  el.textContent = margin + '%';
+  el.style.color = margin >= 0 ? 'var(--green)' : 'var(--red)';
+}
+
+function closePriceEdit() {
+  document.getElementById('price-edit-modal').style.display = 'none';
+}
+
+async function savePriceEdit() {
+  const cost = +document.getElementById('price-cost').value || 0;
+  const sell = +document.getElementById('price-sell').value || 0;
+  const { error } = await sb.from('products').update({
+    cost_per_unit: cost, price_per_unit: sell
+  }).eq('name', priceEditState.name);
+  if (error) { toast('خطأ: ' + error.message, false); return; }
+  // سجّل التعديل
+  await sb.from('inventory_logs').insert({
+    product_name: priceEditState.name,
+    change_type: 'تعديل أسعار',
+    qty_before: 0, qty_after: 0, qty_change: 0,
+    reason: `تكلفة: ${fmt(cost)} ل.س — بيع: ${fmt(sell)} ل.س`,
+  });
+  closePriceEdit();
+  loadInventory();
+  toast(`تم تحديث أسعار ${priceEditState.name} ✓`);
+}
+
+// ═══════════════════════════════════════════
+//  SALARIES / PAYROLL
+// ═══════════════════════════════════════════
+// ربط حقول المعاش لحساب الصافي تلقائياً
+['sal-base','sal-bonus','sal-deduct'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', updateSalaryPreview);
+});
+
+function updateSalaryPreview() {
+  const base = +document.getElementById('sal-base').value || 0;
+  const bonus = +document.getElementById('sal-bonus').value || 0;
+  const deduct = +document.getElementById('sal-deduct').value || 0;
+  const net = base + bonus - deduct;
+  document.getElementById('sal-net-preview').textContent = fmt(net) + ' ل.س';
+  document.getElementById('sal-net-preview').style.color = net >= 0 ? 'var(--green)' : 'var(--red)';
+}
+
+async function addSalary() {
+  const name = document.getElementById('sal-name').value.trim();
+  const month = document.getElementById('sal-month').value;
+  const base = +document.getElementById('sal-base').value || 0;
+  const bonus = +document.getElementById('sal-bonus').value || 0;
+  const deduct = +document.getElementById('sal-deduct').value || 0;
+  if (!name || !month || !base) { toast('أدخل اسم الموظف والشهر والراتب الأساسي', false); return; }
+  const net = base + bonus - deduct;
+  const { error } = await sb.from('salaries').insert({
+    employee_name: name, salary_month: month,
+    base_salary: base, bonuses: bonus, deductions: deduct, net_salary: net,
+    notes: document.getElementById('sal-notes').value,
+  });
+  if (error) { toast('خطأ: ' + error.message, false); return; }
+  // سجّل في المصاريف تلقائياً
+  await sb.from('expenses').insert({
+    expense_date: month + '-01',
+    category: 'معاشات',
+    description: `راتب ${name} — ${month}`,
+    amount: net,
+  });
+  ['sal-name','sal-base','sal-bonus','sal-deduct','sal-notes'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  document.getElementById('sal-bonus').value = 0;
+  document.getElementById('sal-deduct').value = 0;
+  updateSalaryPreview();
+  loadSalaries();
+  loadAccounts();
+  toast(`تم صرف معاش ${name} ✓`);
+}
+
+async function loadSalaries() {
+  const { data } = await sb.from('salaries').select('*').order('salary_month', {ascending:false});
+  const tb = document.getElementById('salaries-list');
+  if (!data?.length) { tb.innerHTML = '<tr><td colspan="7" class="empty">لا توجد معاشات مسجلة</td></tr>'; return; }
+  tb.innerHTML = data.map(s => `
+    <tr>
+      <td>${s.salary_month}</td>
+      <td><strong>${s.employee_name}</strong></td>
+      <td>${fmt(s.base_salary)} ل.س</td>
+      <td style="color:var(--green)">${fmt(s.bonuses)} ل.س</td>
+      <td style="color:var(--red)">${fmt(s.deductions)} ل.س</td>
+      <td style="font-weight:700">${fmt(s.net_salary)} ل.س</td>
+      <td style="font-size:11px;color:var(--text2)">${s.notes||'—'}</td>
+    </tr>`).join('');
+}
+
+// ═══════════════════════════════════════════
+//  ACCOUNTS
+// ═══════════════════════════════════════════
+async function loadAccounts() {
+  const { data: sales } = await sb.from('sales').select('total');
+  const { data: expenses } = await sb.from('expenses').select('amount,category');
+  const { data: salaries } = await sb.from('salaries').select('net_salary');
+  const { data: clients } = await sb.from('clients').select('debt');
+
+  const revenue = (sales || []).reduce((s, r) => s + +r.total, 0);
+  const expTotal = (expenses || []).reduce((s, r) => s + +r.amount, 0);
+  const salTotal = (salaries || []).reduce((s, r) => s + +r.net_salary, 0);
+  const debt = (clients || []).reduce((s, c) => s + +c.debt, 0);
+  const net = revenue - expTotal;
+
+  document.getElementById('acc-rev').textContent = fmt(revenue);
+  document.getElementById('acc-exp').textContent = fmt(expTotal);
+  document.getElementById('acc-sal').textContent = fmt(salTotal);
+  document.getElementById('acc-debt').textContent = fmt(debt);
+  const netEl = document.getElementById('acc-net');
+  netEl.textContent = fmt(net);
+  netEl.style.color = net >= 0 ? 'var(--green)' : 'var(--red)';
+
+  const byCategory = {};
+  (expenses || []).forEach(e => { byCategory[e.category] = (byCategory[e.category] || 0) + +e.amount; });
+  const chart = document.getElementById('expense-chart');
+  if (!Object.keys(byCategory).length) { chart.innerHTML = '<div class="empty">لا توجد مصاريف مسجلة</div>'; }
+  else {
+    chart.innerHTML = Object.entries(byCategory).sort((a,b) => b[1]-a[1]).map(([cat, amt]) => {
+      const pct = expTotal > 0 ? Math.round((amt / expTotal) * 100) : 0;
+      return `<div style="margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
+          <span>${cat}</span><span style="color:var(--text2)">${fmt(amt)} ل.س (${pct}%)</span>
+        </div>
+        <div class="progress"><div class="progress-fill" style="width:${pct}%"></div></div>
+      </div>`;
+    }).join('');
+  }
+}
+
+async function addExpense() {
+  const amount = +document.getElementById('exp-amount').value;
+  if (!amount) { toast('أدخل مبلغ المصروف', false); return; }
+  const { error } = await sb.from('expenses').insert({
+    expense_date: document.getElementById('exp-date').value,
+    category: document.getElementById('exp-cat').value,
+    description: document.getElementById('exp-desc').value,
+    amount,
+  });
+  if (error) { toast('خطأ: ' + error.message, false); return; }
+  document.getElementById('exp-amount').value = '';
+  document.getElementById('exp-desc').value = '';
+  loadExpenses();
+  loadAccounts();
+  toast('تم تسجيل المصروف ✓');
+}
+
+async function loadExpenses() {
+  const { data } = await sb.from('expenses').select('*').order('expense_date', {ascending:false}).limit(100);
+  const tb = document.getElementById('expenses-list');
+  if (!data?.length) { tb.innerHTML = '<tr><td colspan="4" class="empty">لا توجد مصاريف مسجلة</td></tr>'; return; }
+  tb.innerHTML = data.map(e =>
+    `<tr><td>${e.expense_date}</td><td><span class="badge badge-amber">${e.category}</span></td><td>${e.description||'—'}</td><td>${fmt(e.amount)} ل.س</td></tr>`
+  ).join('');
+}
+
+async function loadPLReport() {
+  const { data: sales } = await sb.from('sales').select('total');
+  const { data: expenses } = await sb.from('expenses').select('amount,category');
+  const { data: salaries } = await sb.from('salaries').select('net_salary,employee_name,salary_month');
+  const revenue = (sales || []).reduce((s, r) => s + +r.total, 0);
+  const expByCategory = {};
+  (expenses || []).forEach(e => { expByCategory[e.category] = (expByCategory[e.category] || 0) + +e.amount; });
+  const salTotal = (salaries || []).reduce((s, r) => s + +r.net_salary, 0);
+  const expTotal = Object.values(expByCategory).reduce((a, b) => a + b, 0);
+  const net = revenue - expTotal;
+  const margin = revenue > 0 ? ((net / revenue) * 100).toFixed(1) : 0;
+
+  document.getElementById('pl-report').innerHTML = `
+    <table>
+      <tr style="background:var(--bg)"><td colspan="2" style="padding:10px;font-weight:600;font-size:14px">الإيرادات</td></tr>
+      <tr><td style="padding:8px 10px;color:var(--text2)">مبيعات المنتجات</td><td style="color:var(--green);font-weight:600">${fmt(revenue)} ل.س</td></tr>
+      <tr style="background:var(--bg)"><td colspan="2" style="padding:10px;font-weight:600;font-size:14px">المصاريف التشغيلية</td></tr>
+      ${Object.entries(expByCategory).map(([cat, amt]) =>
+        `<tr><td style="padding:8px 10px;color:var(--text2)">${cat}</td><td style="color:var(--red)">${fmt(amt)} ل.س</td></tr>`
+      ).join('')}
+      <tr style="background:var(--bg)"><td colspan="2" style="padding:10px;font-weight:600;font-size:14px">المعاشات والرواتب</td></tr>
+      <tr><td style="padding:8px 10px;color:var(--text2)">إجمالي المعاشات</td><td style="color:var(--red)">${fmt(salTotal)} ل.س</td></tr>
+      <tr style="border-top:2px solid var(--border)">
+        <td style="padding:10px;font-weight:600">صافي الربح</td>
+        <td style="font-size:20px;font-weight:700;color:${net>=0?'var(--green)':'var(--red)'}">${fmt(net)} ل.س</td>
+      </tr>
+      <tr><td style="padding:8px 10px;color:var(--text2)">هامش الربح</td><td style="font-weight:600">${margin}%</td></tr>
+    </table>`;
+}
+
+// ═══════════════════════════════════════════
+//  START
+// ═══════════════════════════════════════════
+loadDashboard();
+</script>
+</body>
+</html>

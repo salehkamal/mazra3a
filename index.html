@@ -1824,6 +1824,7 @@ async function deleteCalf(id) {
 async function loadMilkEntry() {
   const isAdmin = CU.role==='admin';
   const isFarm  = CU.role==='farm' || isAdmin;
+  const tb = document.getElementById('mk-rows');
   if(!tb) return;
 
   // جلب الأبقار مرتبة + آخر تسجيل لكل بقرة (اليوم السابق)

@@ -374,6 +374,7 @@ const ROLES = {
 const PAGES = {
   dashboard:    { label:'لوحة التحكم',    roles:['admin','factory','farm','sales','purchases'] },
   pos:          { label:'نقطة البيع',     roles:['admin','factory','sales'], isPOS:true },
+  cows:         { label:'🐄 الأبقار',      roles:['admin','farm'] },
   milk:         { label:'إنتاج الحليب',   roles:['admin','farm'] },
   factory:      { label:'إنتاج المعمل',   roles:['admin','factory'] },
   inventory:    { label:'المخزون',        roles:['admin','factory','sales'] },
@@ -450,7 +451,7 @@ function can(action) {
   if (CU.role === 'admin') return true;
   const rolePerms = {
     factory:   ['view_dashboard','factory_production','view_inventory','sales_cashonly','returns'],
-    farm:      ['view_dashboard','milk_record','purchase_request'],
+    farm:      ['view_dashboard','milk_record','purchase_request','farm_edit','cow_manage','feed_manage'],
     sales:     ['view_dashboard','sales_full','view_clients','returns','pos'],
     purchases: ['view_dashboard','view_purchases','purchase_request'],
   };
@@ -506,6 +507,7 @@ function showPage(name, btn) {
 
 const pageLoaders = {
   dashboard:    renderDashboard,
+  cows:         renderCows,
   milk:         renderMilk,
   factory:      renderFactory,
   inventory:    renderInventory,
@@ -902,6 +904,396 @@ async function dashPurchases() {
 }
 
 // ══════════════════════════════════════════════
+//  COWS — صفحة إدارة الأبقار
+// ══════════════════════════════════════════════
+async function renderCows(pg) {
+  const isAdmin = CU.role==='admin';
+  const canEdit = CU.role==='admin' || CU.role==='farm';
+  pg.innerHTML = `
+  <div class="tabs">
+    <button class="tab active" onclick="tabs('cw','list',this,loadCowsList)">🐄 قائمة الأبقار</button>
+    ${canEdit?`<button class="tab" onclick="tabs('cw','health',this,loadCowsHealth)">🏥 الصحة والأدوية</button>`:''}
+    <button class="tab" onclick="tabs('cw','stats',this,loadCowsStats)">📊 إحصائيات</button>
+  </div>
+
+  <!-- ═══ قائمة الأبقار ═══ -->
+  <div id="cw-tab-list">
+    ${canEdit?`<div class="card">
+      <div class="card-hdr"><span class="card-title">➕ إضافة بقرة جديدة</span>
+        <button class="btn btn-sm" onclick="document.getElementById('cow-add-form').style.display=document.getElementById('cow-add-form').style.display==='none'?'block':'none'">+ إضافة</button>
+      </div>
+      <div id="cow-add-form" style="display:none">
+        <div class="fg">
+          <div class="fi"><label>الاسم / الرقم</label><input type="text" id="cow-add-name" placeholder="بقرة 1، سمر..."></div>
+          <div class="fi"><label>السلالة</label><input type="text" id="cow-add-breed" placeholder="هولستاين، محلي..."></div>
+          <div class="fi"><label>تاريخ الولادة</label><input type="date" id="cow-add-born"></div>
+          <div class="fi"><label>حليب يومي متوقع (لتر)</label><input type="number" id="cow-add-liters" min="0" step="0.5" value="0"></div>
+          <div class="fi"><label>علف يومي (كغ)</label><input type="number" id="cow-add-feed" min="0" step="0.5" value="0"></div>
+          <div class="fi"><label>الحالة</label>
+            <select id="cow-add-health" style="padding:8px;border:1px solid var(--bdr);border-radius:var(--rs);background:var(--surf);font-size:13px;width:100%">
+              <option value="healthy">سليمة ✅</option>
+              <option value="sick">مريضة 🏥</option>
+              <option value="pregnant">حامل 🤰</option>
+              <option value="dry">جافة ⏸️</option>
+            </select>
+          </div>
+          <div class="fi full"><label>ملاحظات</label><input type="text" id="cow-add-notes" placeholder="..."></div>
+        </div>
+        <div class="btn-row">
+          <button class="btn" onclick="document.getElementById('cow-add-form').style.display='none'">إلغاء</button>
+          <button class="btn btn-p" onclick="saveCowAdd()">✓ حفظ</button>
+        </div>
+      </div>
+    </div>`:''}
+
+    <!-- تنبيه الأبقار المريضة -->
+    <div id="cw-sick-alert"></div>
+
+    <div class="card" style="padding:0">
+      <div id="cw-list-content"><div class="ld"><span class="spin"></span></div></div>
+    </div>
+  </div>
+
+  ${canEdit?`<!-- ═══ الصحة والأدوية ═══ -->
+  <div id="cw-tab-health" style="display:none">
+    <div class="card">
+      <div class="card-hdr"><span class="card-title">💊 تسجيل علاج / حدث صحي</span></div>
+      <div class="fg">
+        <div class="fi"><label>البقرة</label><select id="hlth-cow" style="padding:8px;border:1px solid var(--bdr);border-radius:var(--rs);background:var(--surf);font-size:13px;width:100%"><option value="">اختر...</option></select></div>
+        <div class="fi"><label>التاريخ</label><input type="date" id="hlth-date"></div>
+        <div class="fi"><label>نوع الحدث</label>
+          <select id="hlth-type" style="padding:8px;border:1px solid var(--bdr);border-radius:var(--rs);background:var(--surf);font-size:13px;width:100%">
+            <option value="علاج">علاج</option>
+            <option value="لقاح">لقاح</option>
+            <option value="فحص">فحص دوري</option>
+            <option value="جراحة">تدخل جراحي</option>
+            <option value="أخرى">أخرى</option>
+          </select>
+        </div>
+        <div class="fi"><label>الدواء / التفاصيل</label><input type="text" id="hlth-drug" placeholder="اسم الدواء أو تفاصيل..."></div>
+        <div class="fi"><label>التكلفة (${CUR})</label><input type="number" id="hlth-cost" min="0" value="0"></div>
+        <div class="fi"><label>تغيير الحالة إلى</label>
+          <select id="hlth-new-status" style="padding:8px;border:1px solid var(--bdr);border-radius:var(--rs);background:var(--surf);font-size:13px;width:100%">
+            <option value="">لا تغيير</option>
+            <option value="healthy">سليمة ✅</option>
+            <option value="sick">مريضة 🏥</option>
+            <option value="pregnant">حامل 🤰</option>
+            <option value="dry">جافة ⏸️</option>
+          </select>
+        </div>
+        <div class="fi full"><label>ملاحظات الطبيب</label><input type="text" id="hlth-notes" placeholder="..."></div>
+      </div>
+      <div class="btn-row"><button class="btn btn-p" onclick="saveCowHealth()">✓ حفظ</button></div>
+    </div>
+    <div class="card" style="padding:0">
+      <div style="padding:10px 14px;font-weight:700;font-size:13px;border-bottom:1px solid var(--bdr)">آخر السجلات الصحية</div>
+      <div id="hlth-history"><div class="ld"><span class="spin"></span></div></div>
+    </div>
+  </div>`:''}
+
+  <!-- ═══ إحصائيات ═══ -->
+  <div id="cw-tab-stats" style="display:none">
+    <div id="cw-stats-content"><div class="ld"><span class="spin"></span></div></div>
+  </div>
+
+  <!-- Modal تعديل بقرة -->
+  <div class="modal-bg" id="cow-edit-modal">
+    <div class="modal">
+      <div class="modal-hdr">
+        <span class="modal-title">تعديل بيانات البقرة</span>
+        <button class="modal-close" onclick="closeModal('cow-edit-modal')">×</button>
+      </div>
+      <div class="fg">
+        <div class="fi"><label>الاسم</label><input type="text" id="ce-name"></div>
+        <div class="fi"><label>السلالة</label><input type="text" id="ce-breed"></div>
+        <div class="fi"><label>حليب يومي (لتر)</label><input type="number" id="ce-liters" min="0" step="0.5"></div>
+        <div class="fi"><label>علف يومي (كغ)</label><input type="number" id="ce-feed" min="0" step="0.5"></div>
+        <div class="fi full"><label>الحالة الصحية</label>
+          <select id="ce-health" style="padding:8px;border:1px solid var(--bdr);border-radius:var(--rs);background:var(--surf);font-size:13px;width:100%">
+            <option value="healthy">سليمة ✅</option>
+            <option value="sick">مريضة 🏥</option>
+            <option value="pregnant">حامل 🤰</option>
+            <option value="dry">جافة ⏸️</option>
+          </select>
+        </div>
+        <div class="fi full"><label>ملاحظات</label><input type="text" id="ce-notes"></div>
+      </div>
+      <input type="hidden" id="ce-id">
+      <div class="btn-row">
+        ${isAdmin?`<button class="btn btn-r" onclick="deleteCow()">🗑 حذف</button>`:''}
+        <button class="btn" onclick="closeModal('cow-edit-modal')">إلغاء</button>
+        <button class="btn btn-p" onclick="saveCowEdit()">✓ حفظ</button>
+      </div>
+    </div>
+  </div>`;
+
+  setDate('hlth-date');
+  loadCowsList();
+  if(canEdit) loadCowsList(); // load health cow dropdown too
+}
+
+const COW_HEALTH_LABELS = {
+  healthy:  { label:'سليمة',   cls:'b-green',  icon:'✅' },
+  sick:     { label:'مريضة',   cls:'b-red',    icon:'🏥' },
+  pregnant: { label:'حامل',    cls:'b-purple', icon:'🤰' },
+  dry:      { label:'جافة',    cls:'b-amber',  icon:'⏸️' },
+};
+
+async function loadCowsList() {
+  const canEdit = CU.role==='admin' || CU.role==='farm';
+  const isAdmin = CU.role==='admin';
+  const {data:cows} = await sb.from('cows')
+    .select('*').order('sort_order',{ascending:true}).order('name');
+
+  // تنبيه المريضات
+  const sickAlert = document.getElementById('cw-sick-alert');
+  const sick = (cows||[]).filter(c=>c.health==='sick');
+  if(sickAlert) {
+    sickAlert.innerHTML = sick.length
+      ? `<div style="background:var(--red-l);border:1px solid var(--red-m);border-radius:var(--rs);padding:10px 14px;margin-bottom:10px;color:var(--red);font-weight:600">
+          🏥 ${sick.length} أبقار مريضة: ${sick.map(c=>c.name).join(' — ')}
+        </div>` : '';
+  }
+
+  // تعبئة قائمة الصحة
+  const hlthSel = document.getElementById('hlth-cow');
+  if(hlthSel && cows) {
+    hlthSel.innerHTML = '<option value="">اختر البقرة...</option>' +
+      (cows||[]).map(c=>`<option value="${c.id}">${c.name} — ${COW_HEALTH_LABELS[c.health||'healthy']?.icon||''} ${COW_HEALTH_LABELS[c.health||'healthy']?.label||''}</option>`).join('');
+  }
+
+  const cont = document.getElementById('cw-list-content');
+  if(!cont) return;
+  if(!cows?.length) {
+    cont.innerHTML='<div style="padding:20px;text-align:center;color:var(--txt3)">لا توجد أبقار مسجلة — أضف أول بقرة 🐄</div>';
+    return;
+  }
+
+  cont.innerHTML = `<table>
+    <thead><tr>
+      ${canEdit?'<th style="width:36px">ترتيب</th>':''}
+      <th>البقرة</th><th>السلالة</th><th>الحالة</th>
+      <th>حليب/يوم</th><th>علف/يوم</th>
+      ${canEdit?'<th></th>':''}
+    </tr></thead>
+    <tbody>
+    ${cows.map((c,idx)=>{
+      const h = COW_HEALTH_LABELS[c.health||'healthy'] || COW_HEALTH_LABELS.healthy;
+      return `<tr id="cwr-${c.id}" data-idx="${idx}">
+        ${canEdit?`<td style="text-align:center">
+          <div style="display:flex;flex-direction:column;gap:1px">
+            <button onclick="moveCowUpPage(${c.id})" style="background:none;border:none;cursor:pointer;color:var(--txt3);font-size:11px;padding:1px">▲</button>
+            <button onclick="moveCowDownPage(${c.id})" style="background:none;border:none;cursor:pointer;color:var(--txt3);font-size:11px;padding:1px">▼</button>
+          </div>
+        </td>`:''}
+        <td><strong>${c.name}</strong>${c.birth_date?`<div style="font-size:10px;color:var(--txt3)">مواليد: ${c.birth_date}</div>`:''}</td>
+        <td style="color:var(--txt2)">${c.breed||'—'}</td>
+        <td><span class="badge ${h.cls}">${h.icon} ${h.label}</span></td>
+        <td><strong>${c.daily_liters||0}</strong> <span style="color:var(--txt3);font-size:11px">لتر</span></td>
+        <td><strong>${c.feed_kg||0}</strong> <span style="color:var(--txt3);font-size:11px">كغ</span></td>
+        ${canEdit?`<td><button class="btn btn-sm" onclick="openCowEdit(${c.id})">✏️</button></td>`:''}
+      </tr>`;
+    }).join('')}
+    </tbody>
+  </table>
+  <div style="padding:10px 14px;background:var(--bg);border-top:1px solid var(--bdr);font-size:12px;color:var(--txt2);display:flex;gap:16px">
+    <span>إجمالي: <strong>${cows.length}</strong> بقرة</span>
+    <span>🥛 إجمالي متوقع: <strong>${cows.reduce((s,c)=>s+(+c.daily_liters||0),0).toFixed(1)}</strong> لتر/يوم</span>
+    <span>🌿 علف كلي: <strong>${cows.reduce((s,c)=>s+(+c.feed_kg||0),0).toFixed(1)}</strong> كغ/يوم</span>
+  </div>`;
+}
+
+async function loadCowsStats() {
+  const cont = document.getElementById('cw-stats-content');
+  if(!cont) return;
+  const [{data:cows},{data:milkLast7}] = await Promise.all([
+    sb.from('cows').select('*').order('daily_liters',{ascending:false}),
+    sb.from('milk_records').select('cow_id,liters,record_date')
+      .gte('record_date', new Date(Date.now()-7*864e5).toISOString().split('T')[0])
+      .order('record_date',{ascending:false}),
+  ]);
+  // حساب معدل الحليب لكل بقرة آخر 7 أيام
+  const cowTotals = {};
+  (milkLast7||[]).forEach(r=>{ cowTotals[r.cow_id]=(cowTotals[r.cow_id]||0)+ +r.liters; });
+  const totalExpected = (cows||[]).reduce((s,c)=>s+(+c.daily_liters||0),0);
+  const totalFeed = (cows||[]).reduce((s,c)=>s+(+c.feed_kg||0),0);
+  const sickCount = (cows||[]).filter(c=>c.health==='sick').length;
+  const pregCount = (cows||[]).filter(c=>c.health==='pregnant').length;
+
+  cont.innerHTML = `
+  <div class="kpi-grid" style="margin-bottom:12px">
+    <div class="kpi"><div class="kpi-lbl">عدد الأبقار</div><div class="kpi-val">${(cows||[]).length}</div><div class="kpi-unit">بقرة</div></div>
+    <div class="kpi"><div class="kpi-lbl">إنتاج متوقع</div><div class="kpi-val" style="color:var(--teal)">${totalExpected.toFixed(0)}</div><div class="kpi-unit">لتر/يوم</div></div>
+    <div class="kpi"><div class="kpi-lbl">علف يومي</div><div class="kpi-val" style="color:var(--amber)">${totalFeed.toFixed(0)}</div><div class="kpi-unit">كغ/يوم</div></div>
+    <div class="kpi"><div class="kpi-lbl">مريضة</div><div class="kpi-val" style="color:${sickCount?'var(--red)':'var(--green)'}">${sickCount}</div><div class="kpi-unit">بقرة</div></div>
+    <div class="kpi"><div class="kpi-lbl">حوامل</div><div class="kpi-val" style="color:var(--purple)">${pregCount}</div><div class="kpi-unit">بقرة</div></div>
+  </div>
+  <div class="card" style="padding:0">
+    <div style="padding:10px 14px;font-weight:700;font-size:13px;border-bottom:1px solid var(--bdr)">🥛 إنتاج الأبقار — آخر 7 أيام</div>
+    <table>
+      <thead><tr><th>البقرة</th><th>الحالة</th><th>حليب 7 أيام</th><th>معدل يومي</th></tr></thead>
+      <tbody>
+      ${(cows||[]).map(c=>{
+        const total7 = cowTotals[c.id]||0;
+        const avg7 = (total7/7).toFixed(1);
+        const h = COW_HEALTH_LABELS[c.health||'healthy']||COW_HEALTH_LABELS.healthy;
+        return `<tr>
+          <td><strong>${c.name}</strong></td>
+          <td><span class="badge ${h.cls}">${h.icon}</span></td>
+          <td><strong>${total7.toFixed(1)}</strong> لتر</td>
+          <td style="color:var(--teal);font-weight:600">${avg7} لتر/يوم</td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+async function loadCowsHealth() {
+  const {data} = await sb.from('cow_health_log')
+    .select('*').order('event_date',{ascending:false}).limit(50);
+  const cont = document.getElementById('hlth-history');
+  if(!cont) return;
+  cont.innerHTML = (data||[]).length ? `<table>
+    <thead><tr><th>التاريخ</th><th>البقرة</th><th>نوع الحدث</th><th>التفاصيل</th><th>التكلفة</th></tr></thead>
+    <tbody>${(data||[]).map(r=>`<tr>
+      <td>${r.event_date}</td>
+      <td><strong>${r.cow_name||'—'}</strong></td>
+      <td><span class="badge b-blue">${r.event_type}</span></td>
+      <td>${r.details||'—'}</td>
+      <td style="color:var(--red)">${r.cost>0?fmt(r.cost)+' '+CUR:'—'}</td>
+    </tr>`).join('')}</tbody>
+  </table>` : '<div style="padding:16px;text-align:center;color:var(--txt3)">لا توجد سجلات صحية</div>';
+}
+
+async function saveCowAdd() {
+  const name = document.getElementById('cow-add-name')?.value.trim();
+  if(!name){ toast('أدخل اسم البقرة',false); return; }
+  const {error} = await sb.from('cows').insert({
+    name,
+    breed:   document.getElementById('cow-add-breed')?.value.trim()||null,
+    birth_date: document.getElementById('cow-add-born')?.value||null,
+    daily_liters: +document.getElementById('cow-add-liters')?.value||0,
+    feed_kg: +document.getElementById('cow-add-feed')?.value||0,
+    health:  document.getElementById('cow-add-health')?.value||'healthy',
+    notes:   document.getElementById('cow-add-notes')?.value.trim()||null,
+    sort_order: 999,
+  });
+  if(error){ toast('خطأ: '+error.message,false); return; }
+  await logAction('إضافة بقرة', name, 'cows');
+  document.getElementById('cow-add-form').style.display='none';
+  document.getElementById('cow-add-name').value='';
+  loadCowsList();
+  toast('تمت إضافة '+name+' ✓');
+}
+
+function openCowEdit(id) {
+  const row = document.getElementById('cwr-'+id);
+  if(!row) return;
+  // نجيب البيانات من الـ DOM
+  document.getElementById('ce-id').value = id;
+  modal('cow-edit-modal');
+  // جلب البيانات من DB
+  sb.from('cows').select('*').eq('id',id).single().then(({data}) => {
+    if(!data) return;
+    document.getElementById('ce-name').value    = data.name||'';
+    document.getElementById('ce-breed').value   = data.breed||'';
+    document.getElementById('ce-liters').value  = data.daily_liters||0;
+    document.getElementById('ce-feed').value    = data.feed_kg||0;
+    document.getElementById('ce-health').value  = data.health||'healthy';
+    document.getElementById('ce-notes').value   = data.notes||'';
+  });
+}
+
+async function saveCowEdit() {
+  const id   = +document.getElementById('ce-id').value;
+  const name = document.getElementById('ce-name').value.trim();
+  if(!name||!id){ toast('بيانات ناقصة',false); return; }
+  const {error} = await sb.from('cows').update({
+    name,
+    breed:        document.getElementById('ce-breed').value.trim()||null,
+    daily_liters: +document.getElementById('ce-liters').value||0,
+    feed_kg:      +document.getElementById('ce-feed').value||0,
+    health:       document.getElementById('ce-health').value||'healthy',
+    notes:        document.getElementById('ce-notes').value.trim()||null,
+  }).eq('id',id);
+  if(error){ toast('خطأ: '+error.message,false); return; }
+  closeModal('cow-edit-modal');
+  loadCowsList();
+  toast('تم التعديل ✓');
+}
+
+async function deleteCow() {
+  const id = +document.getElementById('ce-id').value;
+  if(!id) return;
+  if(!confirm('حذف هذه البقرة نهائياً؟')) return;
+  await sb.from('cows').delete().eq('id',id);
+  closeModal('cow-edit-modal');
+  loadCowsList();
+  toast('تم الحذف');
+}
+
+async function saveCowHealth() {
+  const cowId = +document.getElementById('hlth-cow')?.value;
+  const date  = document.getElementById('hlth-date')?.value;
+  const type  = document.getElementById('hlth-type')?.value;
+  const drug  = document.getElementById('hlth-drug')?.value.trim();
+  const cost  = +document.getElementById('hlth-cost')?.value||0;
+  const newStatus = document.getElementById('hlth-new-status')?.value;
+  const notes = document.getElementById('hlth-notes')?.value.trim();
+  if(!cowId||!date||!type){ toast('اختر البقرة والتاريخ والنوع',false); return; }
+
+  // جلب اسم البقرة
+  const {data:cow} = await sb.from('cows').select('name').eq('id',cowId).single();
+  const cowName = cow?.name||'';
+
+  // حفظ السجل الصحي
+  await sb.from('cow_health_log').insert({
+    cow_id:cowId, cow_name:cowName,
+    event_date:date, event_type:type,
+    details:drug||notes||'', cost,
+    notes, recorded_by:CU.full_name,
+  });
+
+  // تغيير حالة البقرة إن طُلب
+  if(newStatus) {
+    await sb.from('cows').update({health:newStatus}).eq('id',cowId);
+  }
+
+  // تسجيل التكلفة في المصاريف
+  if(cost>0) {
+    await sb.from('expenses').insert({
+      expense_date:date, category:'تكاليف بيطرية',
+      description:`${type} — ${cowName}: ${drug||notes||''}`, amount:cost,
+    });
+  }
+
+  await logAction('سجل صحي', `${cowName} — ${type}`, 'cows');
+  document.getElementById('hlth-drug').value='';
+  document.getElementById('hlth-cost').value='0';
+  document.getElementById('hlth-notes').value='';
+  document.getElementById('hlth-new-status').value='';
+  loadCowsHealth();
+  loadCowsList();
+  toast('تم الحفظ ✓');
+}
+
+async function moveCowUpPage(cowId) {
+  const rows = [...document.querySelectorAll('[id^="cwr-"]')];
+  const idx = rows.findIndex(r=>r.id===`cwr-${cowId}`);
+  if(idx<=0) return;
+  await swapCowOrder(cowId, +rows[idx-1].id.replace('cwr-',''));
+  loadCowsList();
+}
+async function moveCowDownPage(cowId) {
+  const rows = [...document.querySelectorAll('[id^="cwr-"]')];
+  const idx = rows.findIndex(r=>r.id===`cwr-${cowId}`);
+  if(idx<0||idx>=rows.length-1) return;
+  await swapCowOrder(cowId, +rows[idx+1].id.replace('cwr-',''));
+  loadCowsList();
+}
+
+// ══════════════════════════════════════════════
 //  MILK
 // ══════════════════════════════════════════════
 async function renderMilk(pg) {
@@ -1190,15 +1582,17 @@ async function saveFeedEntry() {
   let totalFeed=0;
   inputs.forEach(inp=>{
     const kg=+inp.value||0;
-    if(kg>0){ recs.push({feed_date:date, cow_id:+inp.dataset.cow, feed_kg:kg, straw_kg:0}); totalFeed+=kg; }
-    // حفظ القيمة كافتراضي للبقرة
+    if(kg>0){ recs.push({feed_date:date, cow_id:+inp.dataset.cow, feed_kg:kg, straw_kg:0, recorded_by:CU.full_name}); totalFeed+=kg; }
     if(kg>0) sb.from('cows').update({feed_kg:kg}).eq('id',+inp.dataset.cow);
   });
 
   if(!recs.length&&!straw){ toast('أدخل كميات العلف أو التبن',false); return; }
 
   // حفظ سجل الإطعام
-  if(recs.length) await sb.from('daily_feed_log').insert(recs);
+  if(recs.length){
+    const {error} = await sb.from('daily_feed_log').insert(recs);
+    if(error){ toast('❌ خطأ في حفظ الإطعام: '+error.message,false); console.error('saveFeedEntry',error); return; }
+  }
 
   // خصم العلف من المستهلكات
   if(totalFeed>0){
@@ -1206,12 +1600,12 @@ async function saveFeedEntry() {
     if(fi) await sb.from('consumables').update({qty_available:Math.max(0,+fi.qty_available-totalFeed)}).eq('id',fi.id);
   }
 
-  // خصم التبن من المستهلكات
+  // خصم التبن من المستهلكات وحفظ السجل
   if(straw>0){
     const {data:si}=await sb.from('consumables').select('id,qty_available').ilike('name','%تبن%').maybeSingle();
     if(si) await sb.from('consumables').update({qty_available:Math.max(0,+si.qty_available-straw)}).eq('id',si.id);
-    // حفظ التبن في سجل منفصل
-    await sb.from('daily_straw_log').insert({log_date:date, straw_kg:straw, recorded_by:CU.full_name});
+    // حفظ التبن في نفس جدول daily_feed_log كسجل بـ cow_id=null
+    await sb.from('daily_feed_log').insert({feed_date:date, cow_id:null, feed_kg:0, straw_kg:straw, recorded_by:CU.full_name});
   }
 
   await logAction('تسجيل إطعام',`${date} | علف:${totalFeed}كغ | تبن:${straw}كغ`,'milk');
@@ -1224,20 +1618,20 @@ async function loadFeedHist() {
   const div=document.getElementById('feed-hist');
   if(!div) return;
   const {data}=await sb.from('daily_feed_log')
-    .select('feed_date,feed_kg,cows(name)')
-    .order('feed_date',{ascending:false}).limit(60);
-  const {data:straw}=await sb.from('daily_straw_log')
-    .select('log_date,straw_kg').order('log_date',{ascending:false}).limit(30);
+    .select('feed_date,feed_kg,straw_kg,cow_id,cows(name)')
+    .order('feed_date',{ascending:false}).limit(100);
 
   // تجميع بالتاريخ
   const byDay={};
   (data||[]).forEach(r=>{
-    if(!byDay[r.feed_date]) byDay[r.feed_date]={feed:0,cows:[]};
-    byDay[r.feed_date].feed += +r.feed_kg;
-    byDay[r.feed_date].cows.push(r.cows?.name||'?');
+    if(!byDay[r.feed_date]) byDay[r.feed_date]={feed:0, straw:0, cows:[]};
+    if(r.cow_id){
+      byDay[r.feed_date].feed += +r.feed_kg;
+      if(r.cows?.name) byDay[r.feed_date].cows.push(r.cows.name);
+    } else {
+      byDay[r.feed_date].straw += +r.straw_kg;
+    }
   });
-  const strawMap={};
-  (straw||[]).forEach(r=>strawMap[r.log_date]=+r.straw_kg);
 
   const days=Object.entries(byDay).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,14);
   div.innerHTML=`<div class="tw"><table>
@@ -1245,7 +1639,7 @@ async function loadFeedHist() {
     <tbody>${days.map(([d,v])=>`<tr>
       <td style="font-size:12px">${d}</td>
       <td style="font-weight:700;color:var(--amber)">${v.feed.toFixed(1)} كغ</td>
-      <td style="color:var(--txt2)">${strawMap[d]?strawMap[d]+' كغ':'—'}</td>
+      <td style="color:var(--txt2)">${v.straw>0?v.straw+' كغ':'—'}</td>
     </tr>`).join('')||'<tr><td colspan="3" style="text-align:center;color:var(--txt3);padding:12px">لا توجد سجلات</td></tr>'}
     </tbody></table></div>`;
 }
@@ -1322,11 +1716,12 @@ async function saveBreeding() {
   const calvD  = document.getElementById('breed-calving-date')?.value;
   const notes  = document.getElementById('breed-notes')?.value||'';
   if(!cowId||!insemD){ toast('اختر البقرة وتاريخ التلقيح',false); return; }
-  await sb.from('cow_breeding').insert({
+  const {error} = await sb.from('cow_breeding').insert({
     cow_id:+cowId, heat_date:heatD||null,
     insem_date:insemD, insem_type:type,
     expected_calving:calvD||null, notes
   });
+  if(error){ toast('❌ خطأ: '+error.message,false); console.error('saveBreeding',error); return; }
   await logAction('تسجيل تلقيح','','milk');
   document.getElementById('breeding-form').style.display='none';
   loadBreeding();
@@ -1407,10 +1802,11 @@ async function saveCalf() {
   const feed   = +document.getElementById('calf-feed')?.value||0;
   const straw  = +document.getElementById('calf-straw')?.value||0;
   if(!name){ toast('أدخل اسم العجل',false); return; }
-  await sb.from('calves').insert({
+  const {error} = await sb.from('calves').insert({
     name, calf_type:type, born_date:born||todayStr(),
     mother_id:mother?+mother:null, feed_kg:feed, straw_kg:straw
   });
+  if(error){ toast('❌ خطأ: '+error.message,false); console.error('saveCalf',error); return; }
   await logAction('إضافة عجل/بكر',name,'milk');
   document.getElementById('calf-form').style.display='none';
   document.getElementById('calf-name').value='';
@@ -1427,7 +1823,7 @@ async function deleteCalf(id) {
 
 async function loadMilkEntry() {
   const isAdmin = CU.role==='admin';
-  const tb = document.getElementById('mk-rows');
+  const isFarm  = CU.role==='farm' || isAdmin;
   if(!tb) return;
 
   // جلب الأبقار مرتبة + آخر تسجيل لكل بقرة (اليوم السابق)
@@ -1455,7 +1851,7 @@ async function loadMilkEntry() {
     const defFeed = lastMap[c.id]?.feed_kg_recorded ?? c.feed_kg ?? 0;
     const isLastYest = !!lastMap[c.id];
     return `<tr id="cow-row-${c.id}" data-idx="${idx}">
-      ${isAdmin?`<td style="text-align:center;color:var(--txt2)">
+      ${isFarm?`<td style="text-align:center;color:var(--txt2)">
         <div style="display:flex;flex-direction:column;gap:1px">
           <button onclick="moveCowUp(${c.id})" style="background:none;border:none;cursor:pointer;font-size:12px;padding:1px;color:var(--txt2)" title="تحريك لأعلى">▲</button>
           <button onclick="moveCowDown(${c.id})" style="background:none;border:none;cursor:pointer;font-size:12px;padding:1px;color:var(--txt2)" title="تحريك لأسفل">▼</button>
@@ -1481,7 +1877,7 @@ async function loadMilkEntry() {
 
   // تحديث رأس الجدول إذا أدمن
   const thead = tb.closest('table')?.querySelector('thead tr');
-  if(thead && isAdmin && !thead.querySelector('th[data-sort]')) {
+  if(thead && isFarm && !thead.querySelector('th[data-sort]')) {
     thead.insertAdjacentHTML('afterbegin', '<th data-sort style="width:40px">ترتيب</th>');
   }
   calcMilkTotal();
@@ -2518,6 +2914,8 @@ async function loadInvList() {
     return `<tr data-id="${p.id}" data-idx="${idx}">
       <td>
         ${isAdmin?`<span style="cursor:grab;color:var(--txt3);margin-left:6px;font-size:16px" draggable="true" ondragstart="dragStart(event,${idx})" ondragover="event.preventDefault()" ondrop="dragDrop(event,${idx})">⠿</span>`:''}
+        ${p.image_url?`<img id="prod-img-${p.id}" src="${p.image_url}" alt="" style="width:36px;height:36px;border-radius:var(--rs);object-fit:cover;vertical-align:middle;margin-left:6px;cursor:${isAdmin?'pointer':'default'}" ${isAdmin?`onclick="openProductImagePicker(${p.id})"`:''}>`
+          : isAdmin?`<span id="prod-img-${p.id}" style="display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:var(--rs);background:var(--bg);border:1px dashed var(--bdr);font-size:18px;vertical-align:middle;margin-left:6px;cursor:pointer" onclick="openProductImagePicker(${p.id})" title="إضافة صورة">🖼</span>`:''}
         <strong>${p.name}</strong>${p.barcode?`<br><span style="font-size:10px;color:var(--txt3)">${p.barcode}</span>`:''}
       </td>
       <td>${p.qty}</td><td>${p.unit}</td>
@@ -3772,32 +4170,48 @@ async function confirmMonthlySalaries() {
   if(!month){toast('اختر الشهر',false);return;}
   const {data:emps}=await sb.from('employees').select('*').eq('is_active',true);
   if(!emps?.length){toast('لا يوجد موظفون نشطون',false);return;}
-  if(!confirm(`تأكيد صرف رواتب ${month} لـ ${emps.length} موظفين؟`)) return;
+
+  // جلب خصومات الحليب الشخصي للشهر المختار
+  const fromDate = month+'-01';
+  const toDate   = month+'-31';
+  const {data:milkDeds} = await sb.from('expenses')
+    .select('amount')
+    .eq('category','خصم حليب موظف')
+    .gte('expense_date', fromDate)
+    .lte('expense_date', toDate);
+  const totalMilkDeduct = (milkDeds||[]).reduce((s,r)=>s+ +r.amount, 0);
+
+  if(!confirm(`تأكيد صرف رواتب ${month} لـ ${emps.length} موظفين؟${totalMilkDeduct>0?'\nخصم حليب مزرعة: '+fmt(totalMilkDeduct)+' '+CUR:''}`)) return;
+
   const records=[];
   let totalPaid=0;
   for(const e of emps){
     const deductEl=document.getElementById(`deduct-${e.id}`);
-    const deduct=deductEl?+deductEl.value||0:0;
+    let deduct=deductEl?+deductEl.value||0:0;
+    // إضافة خصم الحليب تلقائياً لموظف المزرعة
+    if(e.department==='مزرعة' && totalMilkDeduct>0) {
+      deduct += totalMilkDeduct;
+    }
     const net=Math.max(0,(+e.base_salary + +e.allowances)-deduct);
     records.push({
       employee_name:e.name,salary_month:month,department:e.department,
-      base_salary:+e.base_salary,bonuses:+e.allowances,deductions:deduct,net_salary:net
+      base_salary:+e.base_salary,bonuses:+e.allowances,deductions:deduct,net_salary:net,
+      notes: e.department==='مزرعة'&&totalMilkDeduct>0?`خصم حليب: ${fmt(totalMilkDeduct)} ${CUR}`:''
     });
     totalPaid+=net;
   }
   const {error}=await sb.from('salaries').insert(records);
   if(error){toast('خطأ: '+error.message,false);return;}
-  // تسجيل في المصاريف تلقائياً (تكلفة محاسبية)
   await sb.from('expenses').insert({
     expense_date:month+'-01',
     category:'رواتب (محاسبية)',
     description:`رواتب شهر ${month} — ${emps.length} موظفين`,
     amount:totalPaid
   });
-  await logAction('صرف رواتب شهرية',`${month} — إجمالي: ${fmt(totalPaid)} ${CUR}`,'accounts');
+  await logAction('صرف رواتب شهرية',`${month} — إجمالي: ${fmt(totalPaid)} ${CUR} — خصم حليب: ${fmt(totalMilkDeduct)} ${CUR}`,'accounts');
   loadSalaries();
   document.getElementById('sal-batch-preview').innerHTML='';
-  toast(`تم تسجيل رواتب ${month} ✓`);
+  toast(`تم تسجيل رواتب ${month} ✓${totalMilkDeduct>0?' (مع خصم الحليب)':''}`);
 }
 
 function calcSalNet() {
@@ -4562,6 +4976,7 @@ async function renderReports(pg) {
     <button class="tab" onclick="showReport('consumption',this)">🌾 الاستهلاك</button>
     <button class="tab" onclick="showReport('clients',this)">👥 العملاء</button>
     <button class="tab" onclick="showReport('operating',this)">⚙️ تكاليف التشغيل</button>
+    <button class="tab" onclick="showReport('maqtouia',this)" style="background:var(--amber-l);color:var(--amber);font-weight:700">📋 المقطوعية الشهرية</button>
   </div>
 
   <div id="rp-content" style="margin-top:12px">
@@ -4648,6 +5063,7 @@ function showReport(type, btn) {
     consumption: ()=>rpConsumption(div,from,to),
     clients:     ()=>rpClients(div,from,to),
     operating:   ()=>rpOperating(div,from,to),
+    maqtouia:   ()=>rpMaqtouia(div,from,to),
   };
   dispatchers[type]?.();
 }
@@ -6860,6 +7276,211 @@ function printReceipt(id, items, subtotal, disc, total, notes='', cashier='', cl
     شكراً لتعاملكم معنا<br>${CO}
   </div>`;
   window.print();
+}
+
+// ══════════════════════════════════════════════
+//  تقرير المقطوعية الشهري
+// ══════════════════════════════════════════════
+async function rpMaqtouia(div, from, to) {
+  // استخراج الشهر من الفترة
+  const month = from.slice(0,7); // YYYY-MM
+  const fromDate = month+'-01';
+  const toDate   = month+'-31';
+
+  const [{data:prods},{data:costs},{data:saleItems},{data:settings}] = await Promise.all([
+    sb.from('productions').select('*').gte('prod_date',fromDate).lte('prod_date',toDate).not('qty_produced','is',null),
+    sb.from('production_costs').select('*').gte('prod_date',fromDate).lte('prod_date',toDate),
+    sb.from('sale_items').select('product_name,qty,unit_price,sale_id,sales(sale_date)').gte('sales.sale_date',fromDate).lte('sales.sale_date',toDate),
+    sb.from('cost_settings').select('setting_key,setting_value'),
+  ]);
+
+  const milkPrice = +(settings||[]).find(s=>s.setting_key==='milk_price_per_liter')?.setting_value || 5100;
+
+  // تجميع حسب المنتج
+  const byProduct = {};
+  (prods||[]).forEach(p=>{
+    if(!p.product_name) return;
+    if(!byProduct[p.product_name]) byProduct[p.product_name]={
+      name:p.product_name, batches:[], totalMilk:0, totalQty:0,
+      totalCost:0, soldQty:0, soldRevenue:0
+    };
+    const g=byProduct[p.product_name];
+    g.batches.push(p);
+    g.totalMilk += +p.milk_used||0;
+    g.totalQty  += +p.qty_produced||0;
+  });
+
+  // التكاليف
+  (costs||[]).forEach(c=>{
+    if(byProduct[c.product_name]) {
+      byProduct[c.product_name].totalCost += +c.total_cost||0;
+    }
+  });
+
+  // المبيعات — نفلتر بالتاريخ في JS لأن nested filter ما دائماً يشتغل
+  const validSaleItems = (saleItems||[]).filter(si=>si.sales?.sale_date>=fromDate && si.sales?.sale_date<=toDate);
+  validSaleItems.forEach(si=>{
+    if(byProduct[si.product_name]) {
+      byProduct[si.product_name].soldQty      += +si.qty||0;
+      byProduct[si.product_name].soldRevenue  += (+si.qty||0)*(+si.unit_price||0);
+    }
+  });
+
+  const rows = Object.values(byProduct);
+  const totQty  = rows.reduce((s,r)=>s+r.totalQty,0);
+  const totMilk = rows.reduce((s,r)=>s+r.totalMilk,0);
+  const totCost = rows.reduce((s,r)=>s+r.totalCost,0);
+  const totSold = rows.reduce((s,r)=>s+r.soldQty,0);
+  const totRev  = rows.reduce((s,r)=>s+r.soldRevenue,0);
+
+  div.innerHTML = `
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+    <div>
+      <div style="font-size:16px;font-weight:800">📋 تقرير المقطوعية — ${month}</div>
+      <div style="font-size:11px;color:var(--txt2)">سعر الحليب: ${fmt(milkPrice)} ${CUR}/لتر</div>
+    </div>
+    <button class="btn btn-p" onclick="downloadMaqtouia('${month}')">⬇ تنزيل Excel</button>
+  </div>
+
+  <div class="kpi-grid" style="margin-bottom:14px">
+    <div class="kpi"><div class="kpi-lbl">إجمالي الإنتاج</div><div class="kpi-val" style="color:var(--teal)">${totQty.toFixed(1)}</div><div class="kpi-unit">كغ/لتر</div></div>
+    <div class="kpi"><div class="kpi-lbl">حليب مستخدم</div><div class="kpi-val" style="color:var(--blue)">${totMilk.toFixed(0)}</div><div class="kpi-unit">لتر</div></div>
+    <div class="kpi"><div class="kpi-lbl">إجمالي التكاليف</div><div class="kpi-val" style="color:var(--red)">${fmt(totCost)}</div><div class="kpi-unit">${CUR}</div></div>
+    <div class="kpi"><div class="kpi-lbl">كمية مباعة</div><div class="kpi-val" style="color:var(--green)">${totSold.toFixed(1)}</div><div class="kpi-unit">كغ/لتر</div></div>
+    <div class="kpi"><div class="kpi-lbl">إيرادات المبيعات</div><div class="kpi-val" style="color:var(--green)">${fmt(totRev)}</div><div class="kpi-unit">${CUR}</div></div>
+  </div>
+
+  <div class="card" style="padding:0">
+    <div style="padding:10px 14px;font-weight:700;font-size:13px;border-bottom:1px solid var(--bdr);background:var(--amber-l);color:var(--amber)">
+      📋 تفصيل المقطوعية حسب المنتج
+    </div>
+    <div class="tw"><table id="maqtouia-table">
+      <thead><tr style="background:var(--bg)">
+        <th>المنتج</th>
+        <th>دفعات</th>
+        <th>حليب (لتر)</th>
+        <th>إنتاج (كغ/لتر)</th>
+        <th>المقطوعية</th>
+        <th>تكلفة/وحدة</th>
+        <th>مباع</th>
+        <th>متبقي</th>
+        <th>إيراد</th>
+        <th>هامش</th>
+      </tr></thead>
+      <tbody>
+      ${rows.length ? rows.map(r=>{
+        const maqtouia = r.totalQty>0 ? (r.totalMilk / r.totalQty).toFixed(2) : '—';
+        const costPerUnit = r.totalQty>0 ? r.totalCost / r.totalQty : 0;
+        const remaining = r.totalQty - r.soldQty;
+        const margin = r.soldRevenue>0 ? ((r.soldRevenue-r.totalCost)/r.soldRevenue*100).toFixed(1) : '—';
+        return `<tr>
+          <td><strong>${r.name}</strong></td>
+          <td style="text-align:center">${r.batches.length}</td>
+          <td style="color:var(--blue)">${r.totalMilk.toFixed(0)}</td>
+          <td style="font-weight:600;color:var(--teal)">${r.totalQty.toFixed(1)}</td>
+          <td style="font-weight:700;color:var(--amber)">${maqtouia} لتر/كغ</td>
+          <td style="color:var(--red)">${costPerUnit>0?fmt(costPerUnit)+' '+CUR:'—'}</td>
+          <td style="color:var(--green)">${r.soldQty.toFixed(1)}</td>
+          <td style="color:${remaining<0?'var(--red)':'var(--txt2)'}">${remaining.toFixed(1)}</td>
+          <td style="font-weight:600">${fmt(r.soldRevenue)}</td>
+          <td style="color:${+margin>20?'var(--green)':+margin>0?'var(--amber)':'var(--red)'}">
+            ${margin!=='—'?margin+'%':'—'}
+          </td>
+        </tr>`;
+      }).join('') : `<tr><td colspan="10" style="text-align:center;padding:16px;color:var(--txt3)">لا توجد بيانات إنتاج لهذا الشهر</td></tr>`}
+      </tbody>
+      ${rows.length?`<tfoot style="background:var(--bg);font-weight:700">
+        <tr>
+          <td>الإجمالي</td>
+          <td></td>
+          <td>${totMilk.toFixed(0)}</td>
+          <td>${totQty.toFixed(1)}</td>
+          <td style="color:var(--amber)">${totQty>0?(totMilk/totQty).toFixed(2)+' لتر/كغ':'—'}</td>
+          <td style="color:var(--red)">${totQty>0?fmt(totCost/totQty)+' '+CUR:'—'}</td>
+          <td style="color:var(--green)">${totSold.toFixed(1)}</td>
+          <td>${(totQty-totSold).toFixed(1)}</td>
+          <td style="color:var(--green)">${fmt(totRev)}</td>
+          <td style="color:${totRev>totCost?'var(--green)':'var(--red)'}">
+            ${totRev>0?((totRev-totCost)/totRev*100).toFixed(1)+'%':'—'}
+          </td>
+        </tr>
+      </tfoot>`:''}
+    </table></div>
+  </div>
+
+  ${rows.length?`<div class="card" style="margin-top:12px">
+    <div style="font-size:13px;font-weight:700;margin-bottom:10px">📊 تفاصيل الدفعات</div>
+    <div class="tw"><table>
+      <thead><tr><th>التاريخ</th><th>المنتج</th><th>حليب (لتر)</th><th>أُنتج</th><th>مقطوعية</th></tr></thead>
+      <tbody>
+      ${(prods||[]).sort((a,b)=>a.prod_date>b.prod_date?1:-1).map(p=>{
+        const mq = p.qty_produced>0?(+p.milk_used/+p.qty_produced).toFixed(2):'—';
+        return `<tr>
+          <td>${p.prod_date}</td><td>${p.product_name||'—'}</td>
+          <td>${p.milk_used}</td><td>${p.qty_produced}</td>
+          <td style="font-weight:600;color:var(--amber)">${mq}</td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+    </table></div>
+  </div>`:''}`;
+}
+
+async function downloadMaqtouia(month) {
+  const {data:prods} = await sb.from('productions').select('*')
+    .gte('prod_date',month+'-01').lte('prod_date',month+'-31').not('qty_produced','is',null);
+  const {data:costs} = await sb.from('production_costs').select('*')
+    .gte('prod_date',month+'-01').lte('prod_date',month+'-31');
+
+  // بناء CSV
+  let csv = '\uFEFF'; // BOM for Arabic support
+  csv += 'التاريخ,المنتج,حليب مستخدم (لتر),كمية منتجة,المقطوعية,تكلفة/وحدة,الكلفة الإجمالية\n';
+  (prods||[]).forEach(p=>{
+    const c = (costs||[]).find(x=>x.production_id===p.id);
+    const mq = p.qty_produced>0?(+p.milk_used/+p.qty_produced).toFixed(2):'';
+    csv += `${p.prod_date},${p.product_name||''},${p.milk_used||0},${p.qty_produced||0},${mq},${c?c.cost_per_unit:''},${c?c.total_cost:''}\n`;
+  });
+
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href=url; a.download=`مقطوعية-${month}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+  toast('تم تنزيل المقطوعية ✓');
+}
+
+// ══════════════════════════════════════════════
+//  دعم صور المنتجات
+// ══════════════════════════════════════════════
+async function uploadProductImage(productId, file) {
+  if(!file || !productId) return null;
+  const ext  = file.name.split('.').pop();
+  const path = `products/${productId}.${ext}`;
+  const { error } = await sb.storage.from('product-images').upload(path, file, { upsert:true });
+  if(error){ toast('خطأ في رفع الصورة: '+error.message, false); return null; }
+  const { data } = sb.storage.from('product-images').getPublicUrl(path);
+  // حفظ URL في جدول products
+  await sb.from('products').update({ image_url: data.publicUrl + '?t=' + Date.now() }).eq('id', productId);
+  return data.publicUrl;
+}
+
+function openProductImagePicker(productId) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    toast('جارٍ رفع الصورة...', true);
+    const url = await uploadProductImage(productId, file);
+    if(url) {
+      // تحديث الصورة في الواجهة فوراً
+      const imgEl = document.getElementById(`prod-img-${productId}`);
+      if(imgEl) { imgEl.src = url; imgEl.style.display='block'; }
+      toast('تم رفع الصورة ✓');
+    }
+  };
+  input.click();
 }
 </script>
 </body>

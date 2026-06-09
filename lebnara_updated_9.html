@@ -5671,6 +5671,8 @@ function wcFromAmount(price) {
   const kg = amount/price;
   document.getElementById('wc-result-kg').textContent = kg.toFixed(3)+' كغ';
   document.getElementById('wc-result-g').textContent  = Math.round(kg*1000)+' غ';
+  document.getElementById('wc-kg').value = kg.toFixed(3);    // ← أضف هذا
+  document.getElementById('wc-g').value  = Math.round(kg*1000); // ← أضف هذا
 }
 
 function applyWeightToRow(rowIdx, pricePerKg, context) {
